@@ -1,0 +1,11 @@
+src/**
+.vscode/**
+.claude/**
+scripts/**
+node_modules/**
+tsconfig.json
+*.map
+readme-dev.md
+.gitignore
+.github
+doc/**

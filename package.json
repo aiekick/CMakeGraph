@@ -1,0 +1,656 @@
+{
+  "name": "cmakegraph",
+  "displayName": "Cmake Graph",
+  "description": "CMake dependency explorer",
+  "version": "0.0.1",
+  "publisher": "aiekick",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "icon": "medias/icon.png",
+  "galleryBanner": {
+    "color": "#008080",
+    "theme": "dark"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aiekick/CMakeGraph"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "workspaceContains:**/CMakeLists.txt",
+    "onLanguage:cmake"
+  ],
+  "contributes": {
+    "configuration": {
+      "title": "Cmake Graph",
+      "properties": {
+        "CMakeGraph.buildDir": {
+          "type": "string",
+          "default": "${workspaceFolder}/build",
+          "description": "Path to the CMake build folder"
+        },
+        "CMakeGraph.cmakePath": {
+          "type": "string",
+          "default": "cmake",
+          "description": "Path to the cmake executable"
+        },
+        "CMakeGraph.ctestPath": {
+          "type": "string",
+          "default": "ctest",
+          "description": "Path to the ctest executable"
+        },
+        "CMakeGraph.cpackPath": {
+          "type": "string",
+          "default": "cpack",
+          "description": "Path to the cpack executable"
+        },
+        "CMakeGraph.clearOutputBeforeRun": {
+          "type": "boolean",
+          "default": true,
+          "description": "Clear output before each CMake command"
+        },
+        "CMakeGraph.defaultJobs": {
+          "type": "integer",
+          "default": 0,
+          "description": "Default number of jobs (0 = let CMake/CTest decide)"
+        },
+        "CMakeGraph.colorizeOutput": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable syntax highlighting in the CMakeGraph output panel"
+        },
+        "CMakeGraph.graphEdgeDirection": {
+          "type": "string",
+          "enum": [
+            "is-using",
+            "used-by"
+          ],
+          "default": "used-by",
+          "description": "Edge arrow direction: toward 'is-using' or 'used-by'"
+        },
+        "CMakeGraph.graphEdgeStyle": {
+          "type": "string",
+          "enum": [
+            "tapered",
+            "chevrons",
+            "line"
+          ],
+          "default": "tapered",
+          "description": "Edge rendering style in the dependency graph"
+        },
+        "CMakeGraph.graphTaperedWidth": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0.1,
+          "maximum": 5,
+          "description": "Width multiplier for tapered edges"
+        },
+        "CMakeGraph.graphNodeColors": {
+          "type": "object",
+          "default": {},
+          "description": "Custom node colors by target type (e.g. {\"EXECUTABLE\": \"#FF0000\"})"
+        },
+        "CMakeGraph.graphSimRepulsion": {
+          "type": "number",
+          "default": 50000
+        },
+        "CMakeGraph.graphSimAttraction": {
+          "type": "number",
+          "default": 0.1
+        },
+        "CMakeGraph.graphSimGravity": {
+          "type": "number",
+          "default": 0.001
+        },
+        "CMakeGraph.graphSimLinkLength": {
+          "type": "number",
+          "default": 0.1
+        },
+        "CMakeGraph.graphSimMinDistance": {
+          "type": "number",
+          "default": 5000
+        },
+        "CMakeGraph.graphSimStepsPerFrame": {
+          "type": "integer",
+          "default": 5
+        },
+        "CMakeGraph.graphSimThreshold": {
+          "type": "number",
+          "default": 0.1
+        },
+        "CMakeGraph.graphSimDamping": {
+          "type": "number",
+          "default": 0.85
+        },
+        "CMakeGraph.graphMinimap": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show minimap on the dependency graph"
+        },
+        "CMakeGraph.graphAutoPauseDrag": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-pause simulation during node drag"
+        },
+        "CMakeGraph.graphSimEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable force simulation on the dependency graph"
+        },
+        "CMakeGraph.graphSettingsCollapse": {
+          "type": "object",
+          "default": {
+            "edges": false,
+            "colors": true,
+            "simulation": true,
+            "display": false,
+            "controls": false
+          },
+          "description": "Collapsed state of settings sections (true = collapsed)"
+        },
+        "CMakeGraph.graphSettingsVisible": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the settings panel is open"
+        },
+        "CMakeGraph.graph3DMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable 3D mode for the dependency graph"
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "CMakeGraph",
+          "title": "CMakeGraph",
+          "icon": "medias/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "CMakeGraph": [
+        {
+          "id": "CMakeGraphOutline",
+          "name": "Project Outline",
+          "icon": "$(checklist)"
+        },
+        {
+          "id": "CMakeGraphImpacted",
+          "name": "Impacted Targets",
+          "icon": "$(target)"
+        }
+      ]
+    },
+    "customEditors": [
+      {
+        "viewType": "CMakeGraph.graphEditor",
+        "displayName": "Dependency Graph",
+        "selector": [
+          {
+            "filenamePattern": "*.cmake-graph"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "commands": [
+      {
+        "command": "CMakeGraph.cancelTask",
+        "title": "Cancel running task",
+        "category": "CMake",
+        "icon": "$(stop-circle)"
+      },
+      {
+        "command": "CMakeGraph.selectBuildDir",
+        "title": "Select build folder",
+        "category": "CMake",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "CMakeGraph.selectConfig",
+        "title": "Select configuration",
+        "category": "CMake",
+        "icon": "$(symbol-interface)"
+      },
+      {
+        "command": "CMakeGraph.build",
+        "title": "Build",
+        "category": "CMake",
+        "icon": {
+          "light": "./medias/build-light.svg",
+          "dark": "./medias/build-dark.svg"
+        }
+      },
+      {
+        "command": "CMakeGraph.buildTarget",
+        "title": "Build target",
+        "category": "CMake",
+        "icon": {
+          "light": "./medias/build-light.svg",
+          "dark": "./medias/build-dark.svg"
+        }
+      },
+      {
+        "command": "CMakeGraph.rebuildTarget",
+        "title": "Rebuild target (clean + build)",
+        "category": "CMake",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "CMakeGraph.clean",
+        "title": "Clean",
+        "category": "CMake",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "CMakeGraph.test",
+        "title": "Test",
+        "category": "CMake",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "CMakeGraph.refresh",
+        "title": "Refresh all",
+        "category": "CMake",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "CMakeGraph.refreshOutline",
+        "title": "Refresh",
+        "category": "CMake",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "CMakeGraph.refreshImpacted",
+        "title": "Refresh",
+        "category": "CMake",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "CMakeGraph.openFile",
+        "title": "Open file",
+        "category": "CMake",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "CMakeGraph.openLocation",
+        "title": "Go to definition",
+        "category": "CMake",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "CMakeGraph.copyToClipboard",
+        "title": "Copy to clipboard",
+        "category": "CMake",
+        "icon": "$(clippy)"
+      },
+      {
+        "command": "CMakeGraph.copySectionToClipboard",
+        "title": "Copy entire section",
+        "category": "CMake",
+        "icon": "$(clippy)"
+      },
+      {
+        "command": "CMakeGraph.selectTargetInOutline",
+        "title": "Show the target in outline",
+        "category": "CMake",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "CMakeGraph.openSettings",
+        "title": "Open the extension settings",
+        "category": "CMake",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "CMakeGraph.buildImpactedSection",
+        "title": "Build all targets in section",
+        "category": "CMake",
+        "icon": {
+          "light": "./medias/build-light.svg",
+          "dark": "./medias/build-dark.svg"
+        }
+      },
+      {
+        "command": "CMakeGraph.rebuildImpactedSection",
+        "title": "Rebuild all targets in section (clean + build)",
+        "category": "CMake",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "CMakeGraph.expandAllImpacted",
+        "title": "Expand all",
+        "category": "CMake",
+        "icon": "$(expand-all)"
+      },
+      {
+        "command": "CMakeGraph.collapseAllImpacted",
+        "title": "Collapse all",
+        "category": "CMake",
+        "icon": "$(collapse-all)"
+      },
+      {
+        "command": "CMakeGraph.filterImpacted",
+        "title": "Filter targets",
+        "category": "CMake",
+        "icon": "$(search)"
+      },
+      {
+        "command": "CMakeGraph.clearFilterImpacted",
+        "title": "Clear filter",
+        "category": "CMake",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "CMakeGraph.filterOutline",
+        "title": "Filter targets",
+        "category": "CMake",
+        "icon": "$(search)"
+      },
+      {
+        "command": "CMakeGraph.clearFilterOutline",
+        "title": "Clear filter",
+        "category": "CMake",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "CMakeGraph.expandAllOutline",
+        "title": "Expand all",
+        "category": "CMake",
+        "icon": "$(expand-all)"
+      },
+      {
+        "command": "CMakeGraph.testImpactedTarget",
+        "title": "Run test",
+        "category": "CMake",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "CMakeGraph.testImpactedSection",
+        "title": "Run all tests in section",
+        "category": "CMake",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "CMakeGraph.openGraphInEditor",
+        "title": "Open dependency graph in editor tab",
+        "category": "CMake",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "CMakeGraph.openTargetGraphInEditor",
+        "title": "Open target sub-graph in editor tab",
+        "category": "CMake",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "CMakeGraph.graphEditorRefresh",
+        "title": "Refresh Graph",
+        "category": "CMake",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "CMakeGraph.graphEditorSettings",
+        "title": "Graph Settings",
+        "category": "CMake",
+        "icon": "$(settings)"
+      },
+      {
+        "command": "CMakeGraph.graphEditorScreenshot",
+        "title": "Screenshot Graph",
+        "category": "CMake",
+        "icon": "$(device-camera)"
+      },
+      {
+        "command": "CMakeGraph.graphEditorExportCsv",
+        "title": "Export Graph as CSV",
+        "category": "CMake",
+        "icon": "$(file-symlink-file)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "CMakeGraph.graphEditorRefresh",
+          "when": "activeCustomEditorId == 'CMakeGraph.graphEditor'",
+          "group": "navigation@1"
+        },
+        {
+          "command": "CMakeGraph.graphEditorSettings",
+          "when": "activeCustomEditorId == 'CMakeGraph.graphEditor'",
+          "group": "navigation@2"
+        },
+        {
+          "command": "CMakeGraph.graphEditorScreenshot",
+          "when": "activeCustomEditorId == 'CMakeGraph.graphEditor'",
+          "group": "navigation@3"
+        },
+        {
+          "command": "CMakeGraph.graphEditorExportCsv",
+          "when": "activeCustomEditorId == 'CMakeGraph.graphEditor'",
+          "group": "navigation@4"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "CMakeGraph.selectBuildDir",
+          "when": "view == CMakeGraphOutline",
+          "group": "navigation@1"
+        },
+        {
+          "command": "CMakeGraph.selectConfig",
+          "when": "view == CMakeGraphOutline && CMakeGraph.multiConfig",
+          "group": "navigation@2"
+        },
+        {
+          "command": "CMakeGraph.filterOutline",
+          "when": "view == CMakeGraphOutline",
+          "group": "navigation@3"
+        },
+        {
+          "command": "CMakeGraph.clearFilterOutline",
+          "when": "view == CMakeGraphOutline && CMakeGraph.outlineFilterActive",
+          "group": "navigation@4"
+        },
+        {
+          "command": "CMakeGraph.expandAllOutline",
+          "when": "view == CMakeGraphOutline",
+          "group": "navigation@5"
+        },
+        {
+          "command": "CMakeGraph.refreshOutline",
+          "when": "view == CMakeGraphOutline",
+          "group": "navigation@6"
+        },
+        {
+          "command": "CMakeGraph.openSettings",
+          "when": "view == CMakeGraphOutline",
+          "group": "navigation@7"
+        },
+        {
+          "command": "CMakeGraph.selectBuildDir",
+          "when": "view == CMakeGraphImpacted",
+          "group": "navigation@1"
+        },
+        {
+          "command": "CMakeGraph.selectConfig",
+          "when": "view == CMakeGraphImpacted && CMakeGraph.multiConfig",
+          "group": "navigation@2"
+        },
+        {
+          "command": "CMakeGraph.filterImpacted",
+          "when": "view == CMakeGraphImpacted",
+          "group": "navigation@3"
+        },
+        {
+          "command": "CMakeGraph.clearFilterImpacted",
+          "when": "view == CMakeGraphImpacted && CMakeGraph.impactedFilterActive",
+          "group": "navigation@4"
+        },
+        {
+          "command": "CMakeGraph.expandAllImpacted",
+          "when": "view == CMakeGraphImpacted",
+          "group": "navigation@5"
+        },
+        {
+          "command": "CMakeGraph.collapseAllImpacted",
+          "when": "view == CMakeGraphImpacted",
+          "group": "navigation@6"
+        },
+        {
+          "command": "CMakeGraph.refreshImpacted",
+          "when": "view == CMakeGraphImpacted",
+          "group": "navigation@7"
+        },
+        {
+          "command": "CMakeGraph.openSettings",
+          "when": "view == CMakeGraphImpacted",
+          "group": "navigation@8"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "CMakeGraph.openGraphInEditor",
+          "when": "view == CMakeGraphOutline && viewItem == outlineProject",
+          "group": "inline@1"
+        },
+        {
+          "command": "CMakeGraph.buildTarget",
+          "when": "view == CMakeGraphOutline && viewItem =~ /^outlineTarget_/",
+          "group": "inline@1"
+        },
+        {
+          "command": "CMakeGraph.rebuildTarget",
+          "when": "view == CMakeGraphOutline && viewItem =~ /^outlineTarget_/",
+          "group": "inline@2"
+        },
+        {
+          "command": "CMakeGraph.openTargetGraphInEditor",
+          "when": "view == CMakeGraphOutline && viewItem =~ /^outlineTarget_(?!UTILITY)/",
+          "group": "inline@3"
+        },
+        {
+          "command": "CMakeGraph.buildImpactedSection",
+          "when": "view == CMakeGraphImpacted && viewItem =~ /^impactedSection_(libraries|executables|tests)/",
+          "group": "inline@1"
+        },
+        {
+          "command": "CMakeGraph.rebuildImpactedSection",
+          "when": "view == CMakeGraphImpacted && viewItem =~ /^impactedSection_(libraries|executables|tests)/",
+          "group": "inline@2"
+        },
+        {
+          "command": "CMakeGraph.testImpactedSection",
+          "when": "view == CMakeGraphImpacted && viewItem =~ /^impactedSection_(executables|tests)/",
+          "group": "inline@3"
+        },
+        {
+          "command": "CMakeGraph.buildTarget",
+          "when": "view == CMakeGraphImpacted && viewItem =~ /^impactedTarget_/",
+          "group": "inline@1"
+        },
+        {
+          "command": "CMakeGraph.rebuildTarget",
+          "when": "view == CMakeGraphImpacted && viewItem =~ /^impactedTarget_/",
+          "group": "inline@2"
+        },
+        {
+          "command": "CMakeGraph.testImpactedTarget",
+          "when": "view == CMakeGraphImpacted && viewItem =~ /^impactedTarget_(EXECUTABLE|TEST)/",
+          "group": "inline@3"
+        },
+        {
+          "command": "CMakeGraph.copyToClipboard",
+          "when": "view == CMakeGraphOutline && viewItem == outlineCopyable",
+          "group": "1_copy@1"
+        },
+        {
+          "command": "CMakeGraph.copySectionToClipboard",
+          "when": "view == CMakeGraphOutline && viewItem =~ /^outlineExtras_/",
+          "group": "1_copy@1"
+        },
+        {
+          "command": "CMakeGraph.copyToClipboard",
+          "when": "view == CMakeGraphOutline && viewItem =~ /^outlineDirectLink_/",
+          "group": "1_copy@1"
+        },
+        {
+          "command": "CMakeGraph.selectTargetInOutline",
+          "when": "view == CMakeGraphOutline && viewItem =~ /^outlineDirectLink_/",
+          "group": "inline@1"
+        },
+        {
+          "command": "CMakeGraph.openTargetGraphInEditor",
+          "when": "view == CMakeGraphOutline && viewItem =~ /^outlineDirectLink_(?!UTILITY)/",
+          "group": "inline@2"
+        },
+        {
+          "command": "CMakeGraph.filterOutline",
+          "when": "view == CMakeGraphOutline && viewItem =~ /^outlineFilter/",
+          "group": "inline@1"
+        },
+        {
+          "command": "CMakeGraph.clearFilterOutline",
+          "when": "view == CMakeGraphOutline && viewItem == outlineFilterActive",
+          "group": "inline@2"
+        },
+        {
+          "command": "CMakeGraph.filterImpacted",
+          "when": "view == CMakeGraphImpacted && viewItem =~ /^impactedFilter/",
+          "group": "inline@1"
+        },
+        {
+          "command": "CMakeGraph.clearFilterImpacted",
+          "when": "view == CMakeGraphImpacted && viewItem == impactedFilterActive",
+          "group": "inline@2"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "CMakeGraph.build",
+        "key": "ctrl+F7"
+      }
+    ],
+    "languages": [
+      {
+        "id": "cmakegraph-output",
+        "mimetypes": [
+          "text/x-cmakegraph-output"
+        ]
+      }
+    ],
+    "grammars": [
+      {
+        "language": "cmakegraph-output",
+        "scopeName": "source.cmakegraph-output",
+        "path": "./syntaxes/output_coloration.tmLanguage.json"
+      }
+    ]
+  },
+  "main": "./out/extension.js",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "compile": "rm -rf out && tsc -p ./ && node ./scripts/esbuild.js",
+    "vsce": "rm -rf out && node ./scripts/esbuild.js && vsce package",
+    "package": "rm -rf out && node ./scripts/esbuild.js && node ./scripts/package.js",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "vscode-cmake-tools": "^1.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.80.0",
+    "archiver": "^7.0.1",
+    "esbuild": "^0.27.3",
+    "typescript": "^5.9.3",
+    "vsce": "^2.15.0"
+  }
+}
