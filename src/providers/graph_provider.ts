@@ -43,65 +43,17 @@ interface GraphEdge {
 // ------------------------------------------------------------
 // DependencyGraphProvider
 // ------------------------------------------------------------
-export class DependencyGraphProvider implements vscode.WebviewViewProvider {
-    public static readonly viewId = 'CMakeGraphDependencyGraph';
-
-    private m_view?: vscode.WebviewView;
+export class DependencyGraphProvider {
     private m_targets: Target[] = [];
-    private m_pendingUpdate = false;
+    private m_panels: Set<vscode.WebviewPanel> = new Set();
+    private m_activePanel?: vscode.WebviewPanel;
 
     constructor(private readonly m_extensionUri: vscode.Uri) { }
-
-    // ---- WebviewViewProvider ----
-
-    resolveWebviewView(
-        aWebviewView: vscode.WebviewView,
-        aContext: vscode.WebviewViewResolveContext,
-        aToken: vscode.CancellationToken,
-    ): void {
-        this.m_view = aWebviewView;
-
-        aWebviewView.webview.options = {
-            enableScripts: true,
-            localResourceRoots: [
-                vscode.Uri.joinPath(this.m_extensionUri, 'out'),
-                vscode.Uri.joinPath(this.m_extensionUri, 'dist'),
-                vscode.Uri.joinPath(this.m_extensionUri, 'medias'),
-            ],
-        };
-
-        aWebviewView.webview.html = this.getHtml(aWebviewView.webview);
-
-        aWebviewView.webview.onDidReceiveMessage(aMsg => this.handleMessage(aMsg));
-
-        // Send pending data if refresh() was called before the view opened
-        if (this.m_pendingUpdate) {
-            this.sendGraphData();
-            this.m_pendingUpdate = false;
-        }
-    }
 
     // ---- Public API ----
 
     refresh(aTargets: Target[]): void {
         this.m_targets = aTargets;
-        if (this.m_view) {
-            this.sendGraphData();
-        } else {
-            this.m_pendingUpdate = true;
-        }
-    }
-
-    toggleLayout(): void {
-        this.m_view?.webview.postMessage({ type: 'toggleLayout' });
-    }
-
-    showSettings(): void {
-        this.m_view?.webview.postMessage({ type: 'showSettings' });
-    }
-
-    screenshot(): void {
-        this.m_view?.webview.postMessage({ type: 'screenshot' });
     }
 
     openInEditor(aFocusTargetId?: string): void {
@@ -124,6 +76,9 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
             },
         );
 
+        this.m_panels.add(panel);
+        this.m_activePanel = panel;
+
         panel.webview.html = this.getHtml(panel.webview);
 
         panel.webview.onDidReceiveMessage(aMsg => {
@@ -136,6 +91,35 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
                 this.handleMessage(aMsg);
             }
         });
+
+        panel.onDidChangeViewState(() => {
+            if (panel.active) {
+                this.m_activePanel = panel;
+            }
+        });
+
+        panel.onDidDispose(() => {
+            this.m_panels.delete(panel);
+            if (this.m_activePanel === panel) {
+                this.m_activePanel = undefined;
+            }
+        });
+    }
+
+    refreshActivePanel(): void {
+        this.m_activePanel?.webview.postMessage(this.buildGraphDataMessage());
+    }
+
+    showSettings(): void {
+        this.m_activePanel?.webview.postMessage({ type: 'showSettings' });
+    }
+
+    screenshot(): void {
+        this.m_activePanel?.webview.postMessage({ type: 'screenshot' });
+    }
+
+    exportCsv(): void {
+        this.m_activePanel?.webview.postMessage({ type: 'exportCsv' });
     }
 
     // ---- Data conversion ----
@@ -203,18 +187,10 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
         return { type: 'update', nodes, edges, settings, defaults };
     }
 
-    private sendGraphData(): void {
-        this.m_view?.webview.postMessage(this.buildGraphDataMessage());
-    }
-
     // ---- Message handling ----
 
     private handleMessage(aMsg: any): void {
         switch (aMsg.type) {
-            case 'ready':
-                this.sendGraphData();
-                break;
-
             case 'nodeClick': {
                 // Reveal in Project Outline (reuse existing revealDependency command)
                 vscode.commands.executeCommand('CMakeGraph.revealDependency', {
@@ -233,7 +209,26 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
                 wksConfigManager.updateSetting(aMsg.key as string, aMsg.value);
                 break;
             }
+
+            case 'csvData': {
+                this.saveCsv(aMsg.rows as { node_a: string; type_a: string; link_type: string; node_b: string; type_b: string }[]);
+                break;
+            }
         }
+    }
+
+    private async saveCsv(aRows: { node_a: string; type_a: string; link_type: string; node_b: string; type_b: string }[]): Promise<void> {
+        const lines = ['node_a,type_a,link_type,node_b,type_b'];
+        for (const r of aRows) {
+            lines.push(`${r.node_a},${r.type_a},${r.link_type},${r.node_b},${r.type_b}`);
+        }
+        const uri = await vscode.window.showSaveDialog({
+            defaultUri: vscode.Uri.file(`${vscode.workspace.name ?? 'project'}_graph.csv`),
+            filters: { 'CSV': ['csv'] },
+        });
+        if (!uri) { return; }
+        await vscode.workspace.fs.writeFile(uri, Buffer.from(lines.join('\n'), 'utf-8'));
+        vscode.window.showInformationMessage(`CSV exported to ${uri.fsPath}`);
     }
 
     private async saveScreenshot(aDataUri: string): Promise<void> {

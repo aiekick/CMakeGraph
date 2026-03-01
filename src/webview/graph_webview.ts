@@ -1831,7 +1831,8 @@ function buildSettingsHtml(): string {
             <label class="settings-checkbox">
             <input type="checkbox" id="s-minimap"${m_minimap_enabled ? ' checked' : ''}> Show minimap</label>
             ${resetBtn('minimap')}
-        </div>`;
+        </div>
+    `;
 
     const controls_content = `
         <div class="settings-row-inline">
@@ -1844,7 +1845,8 @@ function buildSettingsHtml(): string {
             <button id="s-startstop" class="settings-row-inline-button">${m_sim_enabled ? '\u23F8 Stop' : '\u25B6 Start'}</button>
             ${resetBtn('simEnabled')}
         </div>
-        <button id="s-restart" class="full-width-btn">\u21BA Restart Simulation</button>`;
+        <button id="s-restart" class="full-width-btn">\u21BA Restart Simulation</button>
+    `;
 
     return `
 <div class="settings-body">
@@ -1853,7 +1855,8 @@ function buildSettingsHtml(): string {
     ${sectionHtml('edges', 'Edges', edges_content)}
     ${sectionHtml('simulation', 'Force Simulation', sim_content)}
     ${buildNodeColorPickersHtml()}
-</div>`;
+</div>
+`;
 }
 
 function updateStartStopBtn(): void {
@@ -2073,15 +2076,6 @@ function attachSettingsEvents(): void {
         updateStartStopBtn();
         m_vscode.postMessage({ type: 'updateSetting', key: 'graphSimEnabled', value: m_sim_enabled });
     });
-
-    // Fit to View
-    settings_panel.querySelector('#s-fitview')!.addEventListener('click', () => {
-        centerOnNodes();
-        draw();
-    });
-
-    // Screenshot
-    settings_panel.querySelector('#s-screenshot')!.addEventListener('click', takeScreenshot);
 }
 
 // ------------------------------------------------------------
@@ -2141,6 +2135,28 @@ window.addEventListener('message', (event: MessageEvent) => {
         case 'focusNode':
             focusOnNode(msg.targetId as string);
             break;
+        case 'exportCsv': {
+            const node_map = new Map(m_all_nodes.map(n => [n.id, n]));
+            const visible = new Set(m_all_nodes.filter(n => !isNodeFiltered(n)).map(n => n.id));
+            const rows: { node_a: string; type_a: string; link_type: string; node_b: string; type_b: string }[] = [];
+            for (const e of m_all_edges) {
+                if (!visible.has(e.from) || !visible.has(e.to)) { continue; }
+                const na = node_map.get(e.from);
+                const nb = node_map.get(e.to);
+                if (!na || !nb) { continue; }
+                const src = m_edge_direction === EdgeDirection.IS_USING ? na : nb;
+                const dst = m_edge_direction === EdgeDirection.IS_USING ? nb : na;
+                rows.push({
+                    node_a: src.label,
+                    type_a: src.type,
+                    link_type: m_edge_direction === EdgeDirection.IS_USING ? 'uses' : 'used_by',
+                    node_b: dst.label,
+                    type_b: dst.type,
+                });
+            }
+            m_vscode.postMessage({ type: 'csvData', rows });
+            break;
+        }
     }
 });
 

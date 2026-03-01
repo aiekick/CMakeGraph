@@ -179,11 +179,6 @@
           "id": "CMakeGraphImpacted",
           "name": "Impacted Targets",
           "icon": "$(target)"
-        },
-        {
-          "id": "CMakeGraphDependencyGraph",
-          "name": "Dependency Graph",
-          "type": "webview"
         }
       ]
     },
@@ -393,30 +388,6 @@
         "icon": "$(beaker)"
       },
       {
-        "command": "CMakeGraph.toggleGraphLayout",
-        "title": "Toggle layout (hierarchical / force-directed)",
-        "category": "CMake",
-        "icon": "$(layout)"
-      },
-      {
-        "command": "CMakeGraph.refreshDependencyGraph",
-        "title": "Refresh",
-        "category": "CMake",
-        "icon": "$(refresh)"
-      },
-      {
-        "command": "CMakeGraph.graphSettings",
-        "title": "Graph Settings",
-        "category": "CMake",
-        "icon": "$(settings)"
-      },
-      {
-        "command": "CMakeGraph.graphScreenshot",
-        "title": "Screenshot Graph",
-        "category": "CMake",
-        "icon": "$(device-camera)"
-      },
-      {
         "command": "CMakeGraph.openGraphInEditor",
         "title": "Open dependency graph in editor tab",
         "category": "CMake",
@@ -427,9 +398,55 @@
         "title": "Open target sub-graph in editor tab",
         "category": "CMake",
         "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "CMakeGraph.graphEditorRefresh",
+        "title": "Refresh Graph",
+        "category": "CMake",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "CMakeGraph.graphEditorSettings",
+        "title": "Graph Settings",
+        "category": "CMake",
+        "icon": "$(settings)"
+      },
+      {
+        "command": "CMakeGraph.graphEditorScreenshot",
+        "title": "Screenshot Graph",
+        "category": "CMake",
+        "icon": "$(device-camera)"
+      },
+      {
+        "command": "CMakeGraph.graphEditorExportCsv",
+        "title": "Export Graph as CSV",
+        "category": "CMake",
+        "icon": "$(file-symlink-file)"
       }
     ],
     "menus": {
+      "editor/title": [
+        {
+          "command": "CMakeGraph.graphEditorRefresh",
+          "when": "activeWebviewPanelId == 'CMakeGraph.dependencyGraphEditor'",
+          "group": "navigation@1"
+        },
+        {
+          "command": "CMakeGraph.graphEditorSettings",
+          "when": "activeWebviewPanelId == 'CMakeGraph.dependencyGraphEditor'",
+          "group": "navigation@2"
+        },
+        {
+          "command": "CMakeGraph.graphEditorScreenshot",
+          "when": "activeWebviewPanelId == 'CMakeGraph.dependencyGraphEditor'",
+          "group": "navigation@3"
+        },
+        {
+          "command": "CMakeGraph.graphEditorExportCsv",
+          "when": "activeWebviewPanelId == 'CMakeGraph.dependencyGraphEditor'",
+          "group": "navigation@4"
+        }
+      ],
       "view/title": [
         {
           "command": "CMakeGraph.openGraphInEditor",
@@ -550,26 +567,6 @@
           "command": "CMakeGraph.openSettings",
           "when": "view == CMakeGraphImpacted",
           "group": "navigation@8"
-        },
-        {
-          "command": "CMakeGraph.refreshDependencyGraph",
-          "when": "view == CMakeGraphDependencyGraph",
-          "group": "navigation@1"
-        },
-        {
-          "command": "CMakeGraph.graphSettings",
-          "when": "view == CMakeGraphDependencyGraph",
-          "group": "navigation@2"
-        },
-        {
-          "command": "CMakeGraph.graphScreenshot",
-          "when": "view == CMakeGraphDependencyGraph",
-          "group": "navigation@3"
-        },
-        {
-          "command": "CMakeGraph.openSettings",
-          "when": "view == CMakeGraphDependencyGraph",
-          "group": "navigation@4"
         }
       ],
       "view/item/context": [

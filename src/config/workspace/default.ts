@@ -16,7 +16,7 @@ export const WorkspaceConfigDefault: WorkspaceTypes.Settings = {
             OBJECT_LIBRARY: '#cf6eff',
             INTERFACE_LIBRARY: '#00BCD4',
             SYSTEM_LIBRARY: '#c8ea32',
-            UTILITY: '#795548',
+            UTILITY: '#c63f0e',
         },
         edges: {
             edgeDirection: WorkspaceTypes.Graph.EdgeDirection.USED_BY,
@@ -31,7 +31,7 @@ export const WorkspaceConfigDefault: WorkspaceTypes.Settings = {
                 linkLength: 0.05,
                 minDistance: 1000,
                 stepsPerFrame: 5,
-                threshold: 5,
+                threshold: 0.5,
                 damping: 0.85,
             },
             controls: {

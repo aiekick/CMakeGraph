@@ -100,13 +100,6 @@ export async function activate(aContext: vscode.ExtensionContext): Promise<void>
     });
 
     graph_provider = new DependencyGraphProvider(aContext.extensionUri);
-    aContext.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(
-            DependencyGraphProvider.viewId,
-            graph_provider,
-            { webviewOptions: { retainContextWhenHidden: true } },
-        ),
-    );
 
     // Update impacted targets when active editor changes
     impacted_provider.setActiveFile(
@@ -151,10 +144,10 @@ export async function activate(aContext: vscode.ExtensionContext): Promise<void>
         ['CMakeGraph.copySectionToClipboard', (...aArgs: unknown[]) => cmdCopySectionToClipboard(aArgs)],
         ['CMakeGraph.revealDependency', (aNode: unknown) => cmdRevealDependency(aNode)],
         ['CMakeGraph.openSettings', cmdOpenSettings],
-        ['CMakeGraph.toggleGraphLayout', () => graph_provider?.toggleLayout()],
-        ['CMakeGraph.refreshDependencyGraph', cmdRefresh],
-        ['CMakeGraph.graphSettings', () => graph_provider?.showSettings()],
-        ['CMakeGraph.graphScreenshot', () => graph_provider?.screenshot()],
+        ['CMakeGraph.graphEditorRefresh', () => graph_provider?.refreshActivePanel()],
+        ['CMakeGraph.graphEditorSettings', () => graph_provider?.showSettings()],
+        ['CMakeGraph.graphEditorScreenshot', () => graph_provider?.screenshot()],
+        ['CMakeGraph.graphEditorExportCsv', () => graph_provider?.exportCsv()],
         ['CMakeGraph.openGraphInEditor', () => graph_provider?.openInEditor()],
         ['CMakeGraph.openTargetGraphInEditor', (aNode: unknown) => {
             if (aNode && typeof aNode === 'object' && 'kind' in aNode && (aNode as any).kind === 'target') {
