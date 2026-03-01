@@ -54,7 +54,7 @@ During development, `npm run compile` (or `npm run watch`) uses the TypeScript c
 
 1. **`scripts/esbuild.js`** bundles two entry points:
    - **Extension** (Node context): `src/extension.ts` → `out/extension.js` (CommonJS, externals: `vscode`)
-   - **Webview** (Browser context): `src/webview/dependency_graph_webview.ts` → `out/webview/dependency_graph_webview.js` (IIFE, no externals)
+   - **Webview** (Browser context): `src/webview/graph_webview.ts` → `out/webview/graph_webview.js` (IIFE, no externals)
    - In production mode: minified, no source maps
 2. **`scripts/package.js`** creates the `.vsix` archive (ZIP format) containing:
    - `package.json`, `readme.md`, `changelog.md`, `LICENSE`
@@ -90,16 +90,16 @@ CMakeGraph/
       preset_evaluator.ts                 Macro and condition evaluation
       cmake_diagnostics_manager.ts        Parse cmake output for errors/warnings
     providers/
-      project_outline_provider.ts         Project Outline tree view
+      outline_provider.ts                 Project Outline tree view
       config_provider.ts                  Configuration (cache) tree view
-      impacted_targets_provider.ts        Impacted Targets tree view
-      dependency_graph_provider.ts        Dependency Graph webview provider
-      cmake_file_decoration_provider.ts   File decoration badges (E/W/D)
+      impacted_provider.ts                Impacted Targets tree view
+      graph_provider.ts                   Dependency Graph custom editor provider
+      decoration_provider.ts              File decoration badges (E/W/D)
     webview/
-      dependency_graph_webview.ts         Dependency Graph client-side code (Canvas2D)
+      graph_webview.ts                    Dependency Graph client-side code (Canvas2D)
       vscode.d.ts                         Type declarations for VS Code webview API
-    misc/
-      cmake_tools_api.ts                  CMake Tools extension integration
+    cmake/
+      direct_links_converter.ts           Computes direct link relationships between targets
     watchers/
       reply_watcher.ts                    File watcher for CMake API replies
     syntaxes/
@@ -107,7 +107,7 @@ CMakeGraph/
   medias/
     icon.svg                              Extension icon
     css/
-      dependency_graph.css                Dependency Graph webview styles
+      graph.css                           Dependency Graph webview styles
   scripts/
     esbuild.js                            esbuild bundler configuration
     package.js                            Custom VSIX packager
@@ -199,12 +199,14 @@ Parses CMake configure output line-by-line to extract diagnostics:
 
 Three tree views implement `vscode.TreeDataProvider<TreeNode>` with discriminated union node types.
 
-#### ProjectOutlineProvider (`project_outline_provider.ts`)
+#### ProjectOutlineProvider (`outline_provider.ts`)
 
 - Builds a tree from the CMake codemodel: directories -> targets -> sources
-- Each target has a "CMake Extras" sub-tree: includes, flags, defines, link flags, libraries, dependencies, cmake files
+- Each target has a "CMake Extras" sub-tree: includes, flags, defines, link flags, libraries, direct links, dependencies, cmake files
+- Direct links show readable type labels (Shared, Static, System, etc.) via `TARGET_TYPE_LABELS` map. Double-click navigates to the target in the outline
+- Inline graph icons on project item and targets (except UTILITY) to open the dependency graph
 - Filter support: substring match on target name or type
-- `findTargetNode()`: enables "Show in outline" navigation from dependencies
+- `findTargetNode()`: enables "Show in outline" navigation from dependencies and direct links
 
 #### ConfigProvider (`config_provider.ts`)
 
@@ -221,49 +223,66 @@ Three tree views implement `vscode.TreeDataProvider<TreeNode>` with discriminate
 - **Test separation**: uses `testsByTarget` map to split EXECUTABLE targets into Executables vs Tests sections
 - **Test regex building**: `getTestRegex()` and `getTestSectionRegex()` group test names by first token (before `_`) to produce compact `ctest -R` patterns
 
-### Dependency Graph (`dependency_graph_provider.ts` + `dependency_graph_webview.ts`)
+### Dependency Graph (`graph_provider.ts` + `graph_webview.ts`)
 
-The Dependency Graph is a webview-based panel that renders an interactive force-directed graph of CMake target dependencies using Canvas2D (no external visualization library at runtime).
+The Dependency Graph is a custom editor that renders an interactive force-directed graph of CMake target dependencies using Canvas2D (no external visualization library at runtime). It opens as an editor tab (not a sidebar panel) so it can be moved to another editor group or screen.
 
-#### Provider side (`dependency_graph_provider.ts`)
+#### Provider side (`graph_provider.ts`)
 
-- Implements `vscode.WebviewViewProvider`
-- Converts the target list into graph nodes (with color/shape per target type) and edges (from `target.dependencies`)
+- Implements `vscode.CustomReadonlyEditorProvider<GraphDocument>`
+- Uses a custom URI scheme (`cmake-graph:`) with `TextDocumentContentProvider` to open graph editors via `vscode.openWith`
+- Tracks multiple open panels (`m_panels: Set<vscode.WebviewPanel>`) and the active panel
+- `openCustomDocument()` parses the URI query for an optional `focusTargetId`
+- `resolveCustomEditor()` sets up the webview, sends graph data on `ready` message, and optionally sends `focusNode` for sub-graphs
+- `refresh()` sends updated graph data to all open panels simultaneously
+- Converts the target list into graph nodes (with color/shape per target type) and edges (from `target.directLinks`)
 - Filters out UTILITY targets and CMake-generated targets (`ALL_BUILD`, `ZERO_CHECK`, etc.)
-- Handles messages from the webview: node clicks (reveal in outline), double-clicks (open definition in CMakeLists.txt), screenshot export, settings updates
+- Handles messages from the webview: node clicks (select in outline), screenshot export, CSV export, settings updates
 - Serves the webview HTML with CSP headers, referencing the bundled JS and CSS from `out/` and `medias/`
+- Editor toolbar buttons (Refresh, Settings, Screenshot, CSV Export) use `activeCustomEditorId` when clause
 
-#### Webview side (`dependency_graph_webview.ts`)
+#### Webview side (`graph_webview.ts`)
 
 Pure TypeScript compiled to a single IIFE bundle (via esbuild). Runs in the webview's browser context.
 
 **Rendering:**
 - Canvas2D-based with device pixel ratio support
+- **Theme-aware**: `isLightTheme()` detects the active theme via `--vscode-editor-background` luminance. All colors (edges, grid, minimap, selection, indicators) use `themeEdgeColor()`, `themeFg()`, and CSS variables to adapt to light and dark themes
 - Grid background with origin cross
 - Rectangular nodes with rounded corners, auto-contrast text color
 - Three edge styles: tapered (triangle), chevrons (>>>), line
 - Off-screen culling for both nodes and edges
-- Edge gradient on selected node: `CanvasGradient` from the base node's color to white (type signature `string | CanvasGradient` across all draw functions)
-- Focused root node golden halo via `ctx.shadowBlur` / `ctx.shadowColor`
-- Minimap: scaled overview with interactive pan/zoom, drawn using the same render pipeline
+- Edge gradient on selected node: `CanvasGradient` from the base node's color to `themeFg()` (type signature `string | CanvasGradient` across all draw functions)
+- Focused root node halo: thick border using `#B87800` (light) / `#FFD700` with shadow glow (dark)
+- Pinned node indicator: cyan border (`#00868B` light / `#00CED1` dark)
+- Selection border uses `--vscode-focusBorder`
+- Minimap: scaled overview using `--vscode-sideBar-background`, with interactive pan/zoom
 
 **Interaction:**
 - Pan: click & drag on background
 - Zoom: mouse wheel (centered on cursor)
 - Node drag: click & drag on a node
-- Selection: click a node to highlight it and its edges
+- Selection: click a node to highlight it and its edges. Selection only deselects on canvas click (not footer/header)
+- Space bar: toggles simulation on/off (canvas has `tabIndex=0` for keyboard focus)
+- Pin checkbox: in the footer, toggles `pinned` property on the selected node
 - Double-click node: opens focused subgraph view (directed BFS via `buildConnectedSubgraph()`)
 - Double-click focused root node: re-centers world origin on the node (gravity re-center)
 - Double-click background: fit graph to view (`centerOnNodes()`)
-- Breadcrumb bar: navigation history with clickable items + search controls (filter input, mode toggle, visibility toggle)
+- Breadcrumb bar: help button + search controls + edge direction dropdown + depth controls (in focus mode) + navigation breadcrumbs
+
+**Node pinning:**
+- Each `LayoutNode` has a `pinned: boolean` property
+- Pinned nodes are excluded from force application in `m_applyForces()` but can still be dragged with the mouse
+- In focus mode, the root node is automatically pinned at origin `(0, 0)` with sub-nodes arranged in a circle around it
+- `exitFocusView()` unpins the focused root node
+- Footer shows a Pin checkbox for the selected node (fast-path update avoids race conditions with `requestAnimationFrame`)
 
 **Focused subgraph view:**
 - `focusOnNode()` builds a directed BFS from the selected node using `buildConnectedSubgraph()`
-- BFS direction respects `edgeDirection` setting: `child-to-parent` follows `from->to`, `parent-to-child` follows `to->from`
-- World origin is shifted to the focused node via `shiftOriginToNode()` so gravity naturally centers around it. Camera is compensated so user sees no visual jump
-- Focused root node is pinned in the force simulation (skipped in force application loop)
-- `isNodeFiltered()` combines type filters + search hide-mode + focus visibility into a single predicate, replacing all individual `activeFilters.has()` checks
-- Changing `edgeDirection` while focused rebuilds the visible set without relayout
+- BFS direction respects `edgeDirection` setting: `USED_BY` follows `to->from`, `IS_USING` follows `from->to`
+- Root node is pinned at origin with sub-nodes arranged in a circle
+- `isNodeFiltered()` combines type filters + search hide-mode + focus visibility into a single predicate
+- Changing `edgeDirection` while focused rebuilds the visible set
 
 **Force simulation:**
 - Repulsion (Coulomb), attraction on edges (Hooke), central gravity toward world origin `(0, 0)`
@@ -274,7 +293,7 @@ Pure TypeScript compiled to a single IIFE bundle (via esbuild). Runs in the webv
 
 **Settings panel:**
 - Collapsible sections (Edges, Node Colors, Force Simulation, Display, Controls) with persisted collapse state
-- Edge style and direction selectors
+- Edge style and direction selectors (synced with breadcrumb bar dropdown)
 - Color pickers per target type (updates all nodes + filter checkboxes in real-time)
 - Tapered width slider
 - Simulation parameter sliders with per-parameter reset buttons
@@ -282,11 +301,15 @@ Pure TypeScript compiled to a single IIFE bundle (via esbuild). Runs in the webv
 - Start/Stop, Restart, Fit to View, Screenshot buttons
 - Panel open/close state persisted to workspace settings
 
+**CSV export:**
+- Provider sends `exportCsv` message to webview
+- Webview collects visible nodes/edges using `isNodeFiltered()`, sends back `csvData`
+- Provider saves 5 columns: `node_a`, `type_a`, `link_type`, `node_b`, `type_b`
+
 **State persistence:**
 - Camera position and zoom are saved via `vscode.setState()` / `vscode.getState()` (survives webview refresh)
-- All graph settings (edge style, direction, colors, simulation parameters, minimap, collapse states, panel visibility) are persisted to workspace settings via `updateSetting` messages to the provider, which calls `vscode.workspace.getConfiguration('CMakeGraph').update(key, value, ConfigurationTarget.Workspace)`
+- All graph settings (edge style, direction, colors, simulation parameters, minimap, collapse states, panel visibility) are persisted to workspace settings via `updateSetting` messages to the provider
 - On load, provider reads all settings and sends them in the `update` message; webview applies them via `applySettingsFromProvider()`
-- Settings panel is restored after `setupCanvas()` to ensure the container is visible
 
 **Relayout policy:**
 - `centerOnNodes()` is only called in 3 cases: first load, double-click on background, Fit-to-View button
@@ -372,14 +395,14 @@ Decorates files and folders in the Explorer with diagnostic badges:
 
 ### Views
 
-Four views in the `CMakeGraph` activity bar container:
+Three tree views in the `CMakeGraph` activity bar container plus a custom editor:
 
 | View ID | Name | Type |
 |---------|------|------|
 | `CMakeGraphOutline` | Project Outline | Tree view |
 | `CMakeGraphConfig` | Configuration | Tree view |
 | `CMakeGraphImpacted` | Impacted Targets | Tree view |
-| `CMakeGraphDependencyGraph` | Dependency Graph | Webview |
+| `CMakeGraph.graphEditor` | Dependency Graph | Custom editor (`cmake-graph:` scheme) |
 
 ### Context Values
 
@@ -395,10 +418,12 @@ Context values control which inline buttons appear on each tree node:
 - `impactedFilter` / `impactedFilterActive` -- filter / clear filter
 
 **Project Outline:**
-- `outlineTarget_<TYPE>` -- build, rebuild buttons
+- `outlineProject` -- inline graph icon (open full graph)
+- `outlineTarget_<TYPE>` -- build, rebuild buttons; inline graph icon (except UTILITY)
 - `outlineFilter` / `outlineFilterActive` -- filter / clear filter
 - `outlineCopyable` -- copy to clipboard
 - `outlineExtras_<type>` -- copy entire section
+- `outlineDirectLink` -- double-click navigates to target in outline; inline graph icon
 - `outlineDependency` -- copy, show in outline
 
 **Configuration:**
@@ -424,10 +449,13 @@ All commands are prefixed with `CMakeGraph.`. The full list is declared in `pack
 | `filterImpacted` | Filter targets | -- |
 | `filterOutline` | Filter targets | -- |
 | `filterConfig` | Filter variables | -- |
-| `toggleGraphLayout` | Toggle graph layout | -- |
-| `graphSettings` | Graph settings | -- |
-| `graphScreenshot` | Screenshot graph | -- |
-| `refreshDependencyGraph` | Refresh dependency graph | -- |
+| `openGraphInEditor` | Open full dependency graph | -- |
+| `openTargetGraphInEditor` | Open target sub-graph | -- |
+| `graphEditorRefresh` | Refresh graph editor | -- |
+| `graphEditorSettings` | Graph settings | -- |
+| `graphEditorScreenshot` | Screenshot graph | -- |
+| `graphEditorExportCsv` | Export graph as CSV | -- |
+| `selectTargetInOutline` | Select target in outline | -- |
 | `openSettings` | Open extension settings | -- |
 
 ## TypeScript Configuration

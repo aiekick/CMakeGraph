@@ -154,6 +154,31 @@ body {
     border-color: var(--vscode-focusBorder);
 }
 
+/* ---- Edge direction control (breadcrumb bar) ---- */
+
+#edge-dir-control select {
+    background: var(--vscode-dropdown-background);
+    color: var(--vscode-dropdown-foreground);
+    border: 1px solid var(--vscode-dropdown-border);
+    padding: 2px 4px;
+    font-size: 11px;
+    border-radius: 2px;
+    cursor: pointer;
+}
+
+#edge-dir-control .settings-reset-btn {
+    background: var(--vscode-button-secondaryBackground, var(--vscode-sideBar-background));
+    color: var(--vscode-button-secondaryForeground, var(--vscode-editor-foreground));
+    border: 1px solid var(--vscode-panel-border);
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 2px;
+}
+
+#edge-dir-control .settings-reset-btn:hover {
+    background: var(--vscode-toolbar-hoverBackground);
+}
+
 /* ---- Search bar ---- */
 
 #search-container {

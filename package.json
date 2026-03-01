@@ -217,13 +217,19 @@
         "command": "CMakeGraph.build",
         "title": "Build",
         "category": "CMake",
-        "icon": "$(build)"
+        "icon": {
+          "light": "./medias/build-light.svg",
+          "dark": "./medias/build-dark.svg"
+        }
       },
       {
         "command": "CMakeGraph.buildTarget",
         "title": "Build target",
         "category": "CMake",
-        "icon": "$(build)"
+        "icon": {
+          "light": "./medias/build-light.svg",
+          "dark": "./medias/build-dark.svg"
+        }
       },
       {
         "command": "CMakeGraph.rebuildTarget",
@@ -337,7 +343,10 @@
         "command": "CMakeGraph.buildImpactedSection",
         "title": "Build all targets in section",
         "category": "CMake",
-        "icon": "$(build)"
+        "icon": {
+          "light": "./medias/build-light.svg",
+          "dark": "./medias/build-dark.svg"
+        }
       },
       {
         "command": "CMakeGraph.rebuildImpactedSection",

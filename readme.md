@@ -25,8 +25,10 @@ A tree view of your project structure based on the CMake codemodel:
   - Compile flags and defines
   - Link flags
   - Linked libraries
+  - Direct links (with readable type labels: Shared, Static, System, etc.). Double-click a direct link to navigate to that target in the outline
   - Target dependencies (with "Show in outline" navigation)
   - CMake input files
+- **Graph integration**: inline graph icon on the project item (full graph) and on each target except UTILITY (sub-graph)
 - Copy individual items or entire sections to the clipboard via right-click menu
 - Filter by target name or type
 
@@ -56,20 +58,25 @@ Shows which targets are affected when the file you are currently editing changes
 
 ### Dependency Graph
 
-An interactive force-directed graph that visualizes CMake target dependencies:
+An interactive force-directed graph that visualizes CMake target dependencies. The graph opens as an **editor tab** (not a sidebar panel), so it can be moved to another editor group or even another screen.
 
+- **Open the graph** from the outline: click the graph icon on the project item for the full graph, or on any target (except UTILITY) for a focused sub-graph
 - **Canvas-based rendering** with pan (click & drag background) and zoom (mouse wheel)
+- **Light and dark theme support**: all graph elements (edges, grid, minimap, selection, indicators) adapt automatically to the active VS Code theme
 - **Node interaction**: click a node to select it and highlight its edges, drag a node to reposition it
-- **Focused subgraph view**: double-click a node to explore only its recursively connected dependencies. A breadcrumb bar shows navigation history and lets you go back. The focused root node is highlighted with a golden halo
-- **Edge gradient**: when a node is selected, each connected edge shows a gradient from the base node's color to white, making it easy to distinguish edge directions
+- **Node pinning**: pin a selected node so it stays in place during simulation. Pinned nodes are marked with a cyan border. Toggle pinning via the checkbox in the footer bar
+- **Focused subgraph view**: double-click a node to explore only its recursively connected dependencies. A breadcrumb bar shows navigation history and lets you go back. The focused root node is highlighted with a golden halo and pinned at the origin, with sub-nodes arranged around it
+- **Edge gradient**: when a node is selected, each connected edge shows a gradient from the base node's color to the foreground color
 - **Double-click the background** to fit the entire graph in the view
+- **Space bar** toggles the simulation on/off
 - **Search & filter**: search nodes by name or file path. Two filter modes:
   - **Dim**: non-matching nodes are faded out
   - **Hide**: non-matching nodes are completely removed from the graph and simulation
 - **Type filtering**: toggle visibility of target types (Executable, Static Library, etc.) via checkboxes in the header
 - **Edge styles**: choose between Tapered, Chevrons, or Line in the settings panel
-- **Edge direction**: show edges as child-to-parent (dependency) or parent-to-child (inverse). Changing direction while in a focused subgraph rebuilds the visible nodes accordingly
+- **Edge direction**: show edges as "Used by" or "Is using" via the dropdown in the breadcrumb bar or the settings panel. Changing direction while in a focused subgraph rebuilds the visible nodes accordingly
 - **Force simulation**: nodes are positioned automatically via a physics simulation with configurable parameters (repulsion, attraction, gravity, damping, etc.)
+- **Editor toolbar** (top-right): Refresh, Settings, Screenshot, and CSV Export buttons
 - **Settings panel** (gear icon): collapsible sections for Edges, Node Colors, Force Simulation, Display, and Controls. Includes:
   - Edge style and direction selectors
   - Color pickers to customize node colors per target type
@@ -77,6 +84,7 @@ An interactive force-directed graph that visualizes CMake target dependencies:
   - All simulation parameter sliders with per-parameter reset buttons
   - Minimap toggle
   - Start/Stop, Restart, Fit to View, and Screenshot (PNG) buttons
+- **CSV export**: exports the currently visible graph (respecting filters and focus) as a CSV file with columns: `node_a`, `type_a`, `link_type`, `node_b`, `type_b`
 - **Minimap**: a small overview of the full graph in the corner, with interactive pan and zoom
 - **Full workspace persistence**: all graph settings (colors, edge style, direction, simulation parameters, panel visibility, section collapse states) are saved in workspace settings and survive VS Code restarts
 

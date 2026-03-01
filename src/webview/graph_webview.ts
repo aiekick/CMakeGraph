@@ -285,7 +285,7 @@ function draw(): void {
 
     m_context.clearRect(0, 0, w, h);
 
-    const bg = getCssVar('--vscode-editor-background') || '#1e1e1e';
+    const bg = getCssVar('--vscode-editor-background') || (isLightTheme() ? '#ffffff' : '#1e1e1e');
     m_context.fillStyle = bg;
     m_context.fillRect(0, 0, w, h);
 
@@ -337,7 +337,7 @@ function drawEdges(aW: number, aH: number): void {
         const search_dim = has_search && !from_matches_search && !to_matches_search;
         const focus_dim = m_focused_node_id !== null && !from_in_focus && !to_in_focus;
         const edge_alpha = (search_dim || focus_dim) ? 0.04 : 0.15;
-        drawEdgeStyled(m_context, x1, y1, x2, y2, `rgba(255, 255, 255, ${edge_alpha})`);
+        drawEdgeStyled(m_context, x1, y1, x2, y2, themeEdgeColor(edge_alpha));
     }
 
     // Highlighted edges with gradient: node color -> white along the arrow
@@ -360,10 +360,10 @@ function drawEdges(aW: number, aH: number): void {
                 base_node = to_ln;
             }
 
-            // Gradient from the base node's color (wide end) -> white (tip)
+            // Gradient from the base node's color (wide end) -> foreground (tip)
             const grad = m_context.createLinearGradient(sx1, sy1, sx2, sy2);
             grad.addColorStop(0, base_node.node.color);
-            grad.addColorStop(1, '#ffffff');
+            grad.addColorStop(1, themeFg());
 
             drawEdgeStyled(m_context, x1, y1, x2, y2, grad, 0.6);
         }
@@ -520,11 +520,15 @@ function drawNodes(aW: number, aH: number): void {
 
         // Focused root node halo (golden glow)
         if (m_focused_node_id && ln.node.id === m_focused_node_id) {
+            const light = isLightTheme();
+            const halo_color = light ? '#B87800' : '#FFD700';
             m_context.save();
-            m_context.shadowColor = '#FFD700';
-            m_context.shadowBlur = Math.max(12, 20 * m_zoom);
-            m_context.strokeStyle = '#FFD700';
-            m_context.lineWidth = Math.max(2, zoom3);
+            if (!light) {
+                m_context.shadowColor = halo_color;
+                m_context.shadowBlur = Math.max(12, 20 * m_zoom);
+            }
+            m_context.strokeStyle = halo_color;
+            m_context.lineWidth = Math.max(3, zoom4);
             drawBox(m_context, sx, sy, sw + zoom8, sh + zoom8, r + zoom4, true);
             m_context.restore();
             m_context.globalAlpha = node_alpha;
@@ -532,14 +536,14 @@ function drawNodes(aW: number, aH: number): void {
 
         // Pinned node indicator (cyan border)
         if (ln.pinned) {
-            m_context.strokeStyle = '#00CED1';
+            m_context.strokeStyle = isLightTheme() ? '#00868B' : '#00CED1';
             m_context.lineWidth = Math.max(2, zoom3);
             drawBox(m_context, sx, sy, sw + zoom4, sh + zoom4, r + zoom2, true);
         }
 
         // Selection border
         if (ln.node.id === m_selected_node_id) {
-            m_context.strokeStyle = '#ffffff';
+            m_context.strokeStyle = getCssVar('--vscode-focusBorder') || themeFg();
             m_context.lineWidth = Math.max(2, zoom3);
             const sel_offset = ln.pinned ? zoom8 : zoom4;
             drawBox(m_context, sx, sy, sw + sel_offset, sh + sel_offset, r + zoom2, true);
@@ -595,7 +599,7 @@ function drawGrid(aW: number, aH: number): void {
     const start_y = Math.floor(world_top / grid_world) * grid_world;
 
     const alpha = Math.min(0.3, grid_screen / 100);
-    m_context.strokeStyle = `rgba(128, 128, 128, ${alpha})`;
+    m_context.strokeStyle = themeEdgeColor(alpha);
     m_context.lineWidth = 1;
 
     m_context.beginPath();
@@ -614,7 +618,7 @@ function drawGrid(aW: number, aH: number): void {
     // Origin cross
     const ox = m_cam_x;
     const oy = m_cam_y;
-    m_context.strokeStyle = 'rgba(128, 128, 128, 0.5)';
+    m_context.strokeStyle = themeEdgeColor(0.5);
     m_context.lineWidth = 2;
     if (ox >= 0 && ox <= aW) {
         m_context.beginPath(); m_context.moveTo(ox, 0); m_context.lineTo(ox, aH); m_context.stroke();
@@ -679,14 +683,17 @@ function drawMinimap(aCanvasW: number, aCanvasH: number): void {
     minimap_transform = { mx: mmx, my: mmy, scale, wMinX: w_min_x, wMinY: w_min_y, canvasW: aCanvasW, canvasH: aCanvasH };
 
     // Background
-    m_context.fillStyle = 'rgba(30, 30, 30, 0.85)';
+    const mm_bg = getCssVar('--vscode-sideBar-background') || getCssVar('--vscode-editor-background') || '#1e1e1e';
+    m_context.fillStyle = mm_bg;
+    m_context.globalAlpha = 0.9;
     m_context.fillRect(mmx, mmy, MINIMAP_W, MINIMAP_H);
-    m_context.strokeStyle = 'rgba(128, 128, 128, 0.5)';
+    m_context.globalAlpha = 1;
+    m_context.strokeStyle = getCssVar('--vscode-panel-border') || 'rgba(128, 128, 128, 0.5)';
     m_context.lineWidth = 1;
     m_context.strokeRect(mmx, mmy, MINIMAP_W, MINIMAP_H);
 
     // Draw edges as thin lines
-    m_context.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    m_context.strokeStyle = themeEdgeColor(0.15);
     m_context.lineWidth = 0.5;
     const node_map = new Map<string, LayoutNode>();
     for (const ln of m_layout_nodes) {
@@ -720,7 +727,7 @@ function drawMinimap(aCanvasW: number, aCanvasH: number): void {
         const ny = mmy + (ln.y - w_min_y) * scale;
         const dot_size = Math.max(2, ln.w * scale * 0.3);
         m_context.globalAlpha = is_dimmed ? 0.15 : 1;
-        m_context.fillStyle = ln.node.id === m_selected_node_id ? '#ffffff' : ln.node.color;
+        m_context.fillStyle = ln.node.id === m_selected_node_id ? themeFg() : ln.node.color;
         m_context.fillRect(nx - dot_size / 2, ny - dot_size / 2, dot_size, dot_size);
     }
     m_context.globalAlpha = 1;
@@ -1403,10 +1410,12 @@ function initSearchBar(): void {
     if (search_bar_inited) { return; }
     search_bar_inited = true;
 
-    // Build the help button + search controls inside the breadcrumb bar
+    // Build the help button + search controls + edge direction inside the breadcrumb bar
     const bar = document.getElementById('breadcrumb-bar')!;
-    bar.innerHTML = buildHelpButtonHtml() + buildSearchControlsHtml();
+    bar.innerHTML = buildHelpButtonHtml() + buildSearchControlsHtml() +
+        '<span class="breadcrumb-separator">\u2502</span>' + buildEdgeDirectionHtml();
     attachSearchEvents();
+    attachEdgeDirectionEvents();
 }
 
 function buildHelpButtonHtml(): string {
@@ -1520,7 +1529,7 @@ function buildFilterCheckboxes(): void {
         const span = document.createElement('span');
         const node_of_type = m_all_nodes.find(n => n.type === type);
         span.textContent = ` ${type} (${count})`;
-        span.style.color = node_of_type?.color ?? '#ccc';
+        span.style.color = node_of_type?.color ?? (getCssVar('--vscode-descriptionForeground') || '#888');
 
         label.appendChild(checkbox);
         label.appendChild(span);
@@ -1819,16 +1828,69 @@ function attachDepthEvents(): void {
     });
 }
 
+function buildEdgeDirectionHtml(): string {
+    return `<div id="edge-dir-control" style="display:inline-flex;align-items:center;gap:2px;">` +
+        `<select id="bc-edgeDirection" title="Edge direction">` +
+        `<option value="${EdgeDirection.USED_BY}"${m_edge_direction === EdgeDirection.USED_BY ? ' selected' : ''}>Used by</option>` +
+        `<option value="${EdgeDirection.IS_USING}"${m_edge_direction === EdgeDirection.IS_USING ? ' selected' : ''}>Is using</option>` +
+        `</select>` +
+        `<button class="settings-reset-btn" id="bc-edgeDir-reset" title="Reset to default value">\u21B6</button>` +
+        `</div>`;
+}
+
+function attachEdgeDirectionEvents(): void {
+    const sel = document.getElementById('bc-edgeDirection') as HTMLSelectElement | null;
+    const reset_btn = document.getElementById('bc-edgeDir-reset') as HTMLButtonElement | null;
+    if (!sel) { return; }
+
+    sel.addEventListener('change', () => {
+        m_edge_direction = sel.value as EdgeDirection;
+        m_vscode.postMessage({ type: 'updateSetting', key: 'graphEdgeDirection', value: m_edge_direction });
+        // If in focus mode, rebuild subgraph with new direction
+        if (m_focused_node_id) {
+            m_focus_node_depths = buildConnectedSubgraph(m_focused_node_id);
+            m_focus_max_depth = 0;
+            for (const d of m_focus_node_depths.values()) {
+                if (d > m_focus_max_depth) { m_focus_max_depth = d; }
+            }
+            m_focus_depth = Math.min(m_focus_depth, m_focus_max_depth);
+            rebuildFocusVisibleIds();
+            updateBreadcrumb();
+        }
+        // Sync the settings panel select if open
+        const settings_sel = document.getElementById('s-edgeDirection') as HTMLSelectElement | null;
+        if (settings_sel) { settings_sel.value = sel.value; }
+        restartSimIfEnabled();
+        draw();
+    });
+
+    if (reset_btn) {
+        reset_btn.addEventListener('click', () => {
+            const def_val = m_provider_defaults['edgeDirection'];
+            if (def_val === undefined) { return; }
+            sel.value = String(def_val);
+            sel.dispatchEvent(new Event('change'));
+        });
+    }
+}
+
 function updateBreadcrumb(): void {
     const bar = document.getElementById('breadcrumb-bar')!;
 
-    // Always rebuild: help + search controls + breadcrumb items
+    // Always rebuild: help + search controls + edge direction + breadcrumb items
     let html = buildHelpButtonHtml() + buildSearchControlsHtml();
 
     if (m_focused_node_id && m_focus_history.length > 0) {
-        // Depth control (between search and breadcrumb)
+        // Depth control
         html += '<span class="breadcrumb-separator">\u2502</span>';
         html += buildDepthControlHtml();
+    }
+
+    // Edge direction (always visible)
+    html += '<span class="breadcrumb-separator">\u2502</span>';
+    html += buildEdgeDirectionHtml();
+
+    if (m_focused_node_id && m_focus_history.length > 0) {
         html += '<span class="breadcrumb-separator">\u2502</span>';
 
         // Breadcrumb navigation
@@ -1847,6 +1909,9 @@ function updateBreadcrumb(): void {
 
     // Re-attach search events
     attachSearchEvents();
+
+    // Attach edge direction events
+    attachEdgeDirectionEvents();
 
     // Attach depth control events
     if (m_focused_node_id) { attachDepthEvents(); }
@@ -2014,6 +2079,9 @@ function attachSettingsEvents(): void {
     dir_sel.addEventListener('change', () => {
         m_edge_direction = dir_sel.value as EdgeDirection;
         m_vscode.postMessage({ type: 'updateSetting', key: 'graphEdgeDirection', value: m_edge_direction });
+        // Sync breadcrumb select
+        const bc_sel = document.getElementById('bc-edgeDirection') as HTMLSelectElement | null;
+        if (bc_sel) { bc_sel.value = dir_sel.value; }
         // If in focus mode, rebuild subgraph with new direction
         if (m_focused_node_id) {
             m_focus_node_depths = buildConnectedSubgraph(m_focused_node_id);
@@ -2260,6 +2328,29 @@ window.addEventListener('message', (event: MessageEvent) => {
 // ------------------------------------------------------------
 function getCssVar(aName: string): string {
     return getComputedStyle(document.documentElement).getPropertyValue(aName).trim();
+}
+
+/** Returns true when the current VS Code theme is light */
+function isLightTheme(): boolean {
+    const bg = getCssVar('--vscode-editor-background');
+    if (!bg) { return false; }
+    // Parse the hex color and compute luminance
+    const hex = bg.startsWith('#') ? bg : '#1e1e1e';
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5;
+}
+
+/** Foreground color that contrasts with the editor background */
+function themeFg(): string {
+    return getCssVar('--vscode-editor-foreground') || (isLightTheme() ? '#000000' : '#ffffff');
+}
+
+/** Edge color with given alpha — uses foreground color so it's visible on any theme */
+function themeEdgeColor(aAlpha: number): string {
+    const light = isLightTheme();
+    return light ? `rgba(0, 0, 0, ${aAlpha})` : `rgba(255, 255, 255, ${aAlpha})`;
 }
 
 function darken(aHex: string): string {
