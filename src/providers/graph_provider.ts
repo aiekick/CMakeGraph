@@ -104,9 +104,43 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
         this.m_view?.webview.postMessage({ type: 'screenshot' });
     }
 
+    openInEditor(aFocusTargetId?: string): void {
+        const title = aFocusTargetId
+            ? `Graph: ${this.m_targets.find(t => t.id === aFocusTargetId)?.name ?? 'Target'}`
+            : 'Dependency Graph';
+
+        const panel = vscode.window.createWebviewPanel(
+            'CMakeGraph.dependencyGraphEditor',
+            title,
+            vscode.ViewColumn.Active,
+            {
+                enableScripts: true,
+                retainContextWhenHidden: true,
+                localResourceRoots: [
+                    vscode.Uri.joinPath(this.m_extensionUri, 'out'),
+                    vscode.Uri.joinPath(this.m_extensionUri, 'dist'),
+                    vscode.Uri.joinPath(this.m_extensionUri, 'medias'),
+                ],
+            },
+        );
+
+        panel.webview.html = this.getHtml(panel.webview);
+
+        panel.webview.onDidReceiveMessage(aMsg => {
+            if (aMsg.type === 'ready') {
+                panel.webview.postMessage(this.buildGraphDataMessage());
+                if (aFocusTargetId) {
+                    panel.webview.postMessage({ type: 'focusNode', targetId: aFocusTargetId });
+                }
+            } else {
+                this.handleMessage(aMsg);
+            }
+        });
+    }
+
     // ---- Data conversion ----
 
-    private sendGraphData(): void {
+    private buildGraphDataMessage(): object {
         const s = wksConfigManager.settings;
         const colors = s.graph.colors;
 
@@ -166,7 +200,11 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
             nodeColors: d.colors,
         };
 
-        this.m_view?.webview.postMessage({ type: 'update', nodes, edges, settings, defaults });
+        return { type: 'update', nodes, edges, settings, defaults };
+    }
+
+    private sendGraphData(): void {
+        this.m_view?.webview.postMessage(this.buildGraphDataMessage());
     }
 
     // ---- Message handling ----

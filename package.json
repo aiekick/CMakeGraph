@@ -415,10 +415,27 @@
         "title": "Screenshot Graph",
         "category": "CMake",
         "icon": "$(device-camera)"
+      },
+      {
+        "command": "CMakeGraph.openGraphInEditor",
+        "title": "Open dependency graph in editor tab",
+        "category": "CMake",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "CMakeGraph.openTargetGraphInEditor",
+        "title": "Open target sub-graph in editor tab",
+        "category": "CMake",
+        "icon": "$(type-hierarchy)"
       }
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "CMakeGraph.openGraphInEditor",
+          "when": "view == CMakeGraphOutline",
+          "group": "navigation@0"
+        },
         {
           "command": "CMakeGraph.selectBuildDir",
           "when": "view == CMakeGraphOutline",
@@ -565,6 +582,11 @@
           "command": "CMakeGraph.rebuildTarget",
           "when": "view == CMakeGraphOutline && viewItem =~ /^outlineTarget_/",
           "group": "inline@2"
+        },
+        {
+          "command": "CMakeGraph.openTargetGraphInEditor",
+          "when": "view == CMakeGraphOutline && viewItem =~ /^outlineTarget_/",
+          "group": "inline@3"
         },
         {
           "command": "CMakeGraph.buildImpactedSection",

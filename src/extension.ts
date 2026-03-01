@@ -155,6 +155,12 @@ export async function activate(aContext: vscode.ExtensionContext): Promise<void>
         ['CMakeGraph.refreshDependencyGraph', cmdRefresh],
         ['CMakeGraph.graphSettings', () => graph_provider?.showSettings()],
         ['CMakeGraph.graphScreenshot', () => graph_provider?.screenshot()],
+        ['CMakeGraph.openGraphInEditor', () => graph_provider?.openInEditor()],
+        ['CMakeGraph.openTargetGraphInEditor', (aNode: unknown) => {
+            if (aNode && typeof aNode === 'object' && 'kind' in aNode && (aNode as any).kind === 'target') {
+                graph_provider?.openInEditor((aNode as any).target.id);
+            }
+        }],
     ];
 
     for (const [id, handler] of cmds) {
