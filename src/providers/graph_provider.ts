@@ -122,6 +122,10 @@ export class DependencyGraphProvider implements vscode.CustomReadonlyEditorProvi
 
     refresh(aTargets: Target[]): void {
         this.m_targets = aTargets;
+        const msg = this.buildGraphDataMessage();
+        for (const panel of this.m_panels) {
+            panel.webview.postMessage(msg);
+        }
     }
 
     openInEditor(aFocusTargetId?: string): void {

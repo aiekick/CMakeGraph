@@ -530,11 +530,19 @@ function drawNodes(aW: number, aH: number): void {
             m_context.globalAlpha = node_alpha;
         }
 
+        // Pinned node indicator (cyan border)
+        if (ln.pinned) {
+            m_context.strokeStyle = '#00CED1';
+            m_context.lineWidth = Math.max(2, zoom3);
+            drawBox(m_context, sx, sy, sw + zoom4, sh + zoom4, r + zoom2, true);
+        }
+
         // Selection border
         if (ln.node.id === m_selected_node_id) {
             m_context.strokeStyle = '#ffffff';
             m_context.lineWidth = Math.max(2, zoom3);
-            drawBox(m_context, sx, sy, sw + zoom4, sh + zoom4, r + zoom2, true);
+            const sel_offset = ln.pinned ? zoom8 : zoom4;
+            drawBox(m_context, sx, sy, sw + sel_offset, sh + sel_offset, r + zoom2, true);
         }
 
         if (font_size <= min_font_size) { m_context.globalAlpha = 1; continue; }
@@ -865,7 +873,6 @@ function attachCanvasEvents(aCanvas: HTMLCanvasElement): void {
 
     window.addEventListener('mouseup', (e: MouseEvent) => {
         if (e.button !== 0) { return; }
-        window.focus();
         if (is_dragging_minimap) {
             is_dragging_minimap = false;
             aCanvas.style.cursor = 'grab';
@@ -879,7 +886,8 @@ function attachCanvasEvents(aCanvas: HTMLCanvasElement): void {
             if (m_sim_enabled) {
                 startSimulation();
             }
-        } else if (!m_was_panning) {
+        } else if (!m_was_panning && e.target === aCanvas) {
+            // Deselect only when clicking on the canvas, not on footer/header/other UI
             m_selected_node_id = null;
             updateFooter();
             draw();
@@ -1560,23 +1568,44 @@ function inputRow(aId: string, aLabel: string, aSimKey: keyof SimVars, aValue: n
 // ------------------------------------------------------------
 // Footer (always visible, shows selected node info)
 // ------------------------------------------------------------
+let m_footer_node_id: string | null = null; // tracks which node the footer is showing
+
+function updatePerFrameDatas(): void {
+    const energy_el = document.getElementById('f-energy');
+    if (energy_el) {
+        energy_el.textContent = m_total_sim_energy.toFixed(2);
+    }
+}
+
 function updateFooter(): void {
     const footer = document.getElementById('footer')!;
-    footer.innerHTML =
-        `<span><span class="info-label">Energy:</span> <span class="info-value">${m_total_sim_energy.toFixed(2)}</span></span>`;
+
+    // Fast path: only update per frame datas if the selected node hasn't changed
+    if (m_footer_node_id === m_selected_node_id) {
+        updatePerFrameDatas();
+        return;
+    }
+
+    // Full rebuild needed (selection changed)
+    m_footer_node_id = m_selected_node_id;
+    let html = `<span><span class="info-label">Energy:</span> <span id="f-energy" class="info-value">${m_total_sim_energy.toFixed(2)}</span></span>`;
+
     if (!m_selected_node_id) {
+        footer.innerHTML = html;
         return;
     }
     const ln = m_layout_nodes.find(l => l.node.id === m_selected_node_id);
     if (!ln) {
+        footer.innerHTML = html;
         return;
     }
     const n = ln.node;
-    footer.innerHTML = footer.innerHTML +
+    html +=
         `<span><span class="info-type-swatch" style="background:${n.color}"></span><span class="info-value">${escapeHtml(n.label)}</span></span>` +
         `<span><span class="info-label">Type:</span> <span class="info-value">${escapeHtml(n.type)}</span></span>` +
         `<span><span class="info-label">Path:</span> <span class="info-value" title="${escapeHtml(n.sourcePath)}">${escapeHtml(n.sourcePath)}</span></span>` +
-        `<span class="footer-right"><label class="settings-checkbox"><input type="checkbox" id="f-pin"${ln.pinned ? ' checked' : ''}> Pin</label></span>`;
+        `<span class="footer-right"><label class="settings-checkbox"><input type="checkbox" id="f-pin"${ln.pinned ? ' checked' : ''}> Frozen</label></span>`;
+    footer.innerHTML = html;
 
     footer.querySelector('#f-pin')!.addEventListener('change', () => {
         const cb = footer.querySelector('#f-pin') as HTMLInputElement;
