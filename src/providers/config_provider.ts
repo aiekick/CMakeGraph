@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { CacheEntry, CacheEntryType } from '../cmake/types';
+import { FilterableTreeProvider } from './filterable_provider';
 
 // ------------------------------------------------------------
 // Tree nodes
@@ -14,13 +15,9 @@ type TreeNode = FilterNode | GroupNode | EntryNode;
 // ------------------------------------------------------------
 // ConfigProvider
 // ------------------------------------------------------------
-export class ConfigProvider implements vscode.TreeDataProvider<TreeNode> {
-    private readonly m_onDidChangeTreeData = new vscode.EventEmitter<void>();
-    readonly onDidChangeTreeData: vscode.Event<void> = this.m_onDidChangeTreeData.event;
-
+export class ConfigProvider extends FilterableTreeProvider<TreeNode> {
     private m_allEntries: CacheEntry[] = [];
     private m_groups: GroupNode[] = [];
-    private m_filter = '';
 
     refresh(aEntries: CacheEntry[]): void {
         this.m_allEntries = aEntries;
@@ -31,33 +28,15 @@ export class ConfigProvider implements vscode.TreeDataProvider<TreeNode> {
         this.m_allEntries = [];
         this.m_filter = '';
         this.m_groups = [];
-        this.m_onDidChangeTreeData.fire();
+        this._onDidChangeTreeData.fire();
     }
 
     getGroups(): GroupNode[] {
         return this.m_groups;
     }
 
-    // ------------------------------------------------------------
-    // Filter
-    // ------------------------------------------------------------
-
-    setFilter(aPattern: string): void {
-        this.m_filter = aPattern.toLowerCase();
+    protected onFilterChanged(): void {
         this.rebuildGroups();
-    }
-
-    clearFilter(): void {
-        this.m_filter = '';
-        this.rebuildGroups();
-    }
-
-    get currentFilter(): string {
-        return this.m_filter;
-    }
-
-    get hasFilter(): boolean {
-        return this.m_filter.length > 0;
     }
 
     private rebuildGroups(): void {
@@ -74,7 +53,7 @@ export class ConfigProvider implements vscode.TreeDataProvider<TreeNode> {
         }
 
         this.m_groups = this.buildGroups(entries);
-        this.m_onDidChangeTreeData.fire();
+        this._onDidChangeTreeData.fire();
     }
 
     // ------------------------------------------------------------

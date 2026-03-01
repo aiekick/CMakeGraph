@@ -5,6 +5,9 @@ import {
     Codemodel, Configuration, Target, TargetType,
     CompileGroup, Source,
 } from '../cmake/types';
+import { TARGET_ICONS, TARGET_TYPE_LABELS } from '../utils/target_constants';
+import { resolveSourcePath } from '../utils/path_utils';
+import { FilterableTreeProvider } from './filterable_provider';
 
 // ------------------------------------------------------------
 // Nodes
@@ -35,40 +38,15 @@ type TreeNode =
     | SourceNode | IncludeNode | FlagNode | CmakeFileNode
     | VirtualFolderNode | DirectLinkNode | LibNode;
 
-const TARGET_ICONS: Record<TargetType, string> = {
-    EXECUTABLE: 'run',
-    STATIC_LIBRARY: 'package',
-    SHARED_LIBRARY: 'library',
-    MODULE_LIBRARY: 'library',
-    OBJECT_LIBRARY: 'file-binary',
-    INTERFACE_LIBRARY: 'symbol-interface',
-    SYSTEM_LIBRARY: 'circle-outline',
-    UTILITY: 'tools',
-};
-
-const TARGET_TYPE_LABELS: Record<TargetType, string> = {
-    EXECUTABLE: 'Executable',
-    STATIC_LIBRARY: 'Static',
-    SHARED_LIBRARY: 'Shared',
-    MODULE_LIBRARY: 'Module',
-    OBJECT_LIBRARY: 'Object',
-    INTERFACE_LIBRARY: 'Interface',
-    SYSTEM_LIBRARY: 'System',
-    UTILITY: '',
-};
 
 // ------------------------------------------------------------
 // ProjectOutlineProvider
 // ------------------------------------------------------------
-export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode> {
-    private readonly _onDidChangeTreeData = new vscode.EventEmitter<void>();
-    readonly onDidChangeTreeData: vscode.Event<void> = this._onDidChangeTreeData.event;
-
+export class ProjectOutlineProvider extends FilterableTreeProvider<TreeNode> {
     private config: Configuration | null = null;
     private targetMap = new Map<string, Target>();
     private rootNodes: TreeNode[] = [];
     private projectSourceDir = '';
-    private filter = '';
 
     // keep raw data to rebuild on filter change
     private lastCodemodel: Codemodel | null = null;
@@ -87,7 +65,7 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
         this.targetMap.clear();
         this.rootNodes = [];
         this.projectSourceDir = '';
-        this.filter = '';
+        this.m_filter = '';
         this.lastCodemodel = null;
         this.lastTargets = [];
         this.lastActiveConfig = '';
@@ -96,26 +74,8 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
         this._onDidChangeTreeData.fire();
     }
 
-    // ------------------------------------------------------------
-    // Filter
-    // ------------------------------------------------------------
-
-    setFilter(pattern: string): void {
-        this.filter = pattern.toLowerCase();
+    protected onFilterChanged(): void {
         this.rebuildTree();
-    }
-
-    clearFilter(): void {
-        this.filter = '';
-        this.rebuildTree();
-    }
-
-    get currentFilter(): string {
-        return this.filter;
-    }
-
-    get hasFilter(): boolean {
-        return this.filter.length > 0;
     }
 
     private rebuildTree(): void {
@@ -240,8 +200,8 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
             .filter(t => !this.isExcluded(t));
 
         // Apply filter on target name
-        if (this.filter) {
-            const f = this.filter;
+        if (this.m_filter) {
+            const f = this.m_filter;
             targets = targets.filter(t =>
                 t.name.toLowerCase().includes(f) ||
                 t.type.toLowerCase().includes(f)
@@ -568,12 +528,12 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
     // ------------------------------------------------------------
 
     private outlineFilterItem(): vscode.TreeItem {
-        const label = this.filter
-            ? `Filter: ${this.filter}`
+        const label = this.m_filter
+            ? `Filter: ${this.m_filter}`
             : 'Filter: (none)';
         const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
         item.iconPath = new vscode.ThemeIcon('search');
-        item.contextValue = this.filter ? 'outlineFilterActive' : 'outlineFilter';
+        item.contextValue = this.m_filter ? 'outlineFilterActive' : 'outlineFilter';
         item.command = {
             command: 'CMakeGraph.filterOutline',
             title: 'Filter',
@@ -660,14 +620,8 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
         return item;
     }
 
-    private absSourcePath(target: Target, sourcePath: string): string {
-        const isAbs = /^([a-zA-Z]:[\\/]|\/)/.test(sourcePath);
-        if (isAbs) { return path.normalize(sourcePath); }
-        return path.normalize(path.join(this.projectSourceDir, sourcePath));
-    }
-
     private sourceItem(target: Target, source: Source, compileGroup?: CompileGroup): vscode.TreeItem {
-        const absPath = this.absSourcePath(target, source.path);
+        const absPath = resolveSourcePath(this.projectSourceDir, source.path);
         const uri = vscode.Uri.file(absPath);
         const item = new vscode.TreeItem(path.basename(absPath), vscode.TreeItemCollapsibleState.None);
         item.id = `source:${target.id}:${source.path}`;

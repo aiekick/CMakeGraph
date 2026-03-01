@@ -227,6 +227,30 @@ function isNodeFiltered(aNode: GraphNode): boolean {
     return false;
 }
 
+/** Returns true when a node should be visually dimmed (search miss or outside focus). */
+function isNodeDimmed(aNode: GraphNode): boolean {
+    if (m_search_filter.length > 0 && !nodeMatchesSearch(aNode)) { return true; }
+    if (!isNodeVisibleInFocus(aNode.id)) { return true; }
+    return false;
+}
+
+// ------------------------------------------------------------
+// Shared utility: visible nodes bounding box
+// ------------------------------------------------------------
+function computeVisibleBounds(): { minX: number; minY: number; maxX: number; maxY: number; count: number } {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let count = 0;
+    for (const ln of m_layout_nodes) {
+        if (isNodeFiltered(ln.node)) { continue; }
+        minX = Math.min(minX, ln.x - ln.w / 2);
+        maxX = Math.max(maxX, ln.x + ln.w / 2);
+        minY = Math.min(minY, ln.y - NODE_H / 2);
+        maxY = Math.max(maxY, ln.y + NODE_H / 2);
+        count++;
+    }
+    return { minX, minY, maxX, maxY, count };
+}
+
 // ------------------------------------------------------------
 // Text measurement (uses offscreen canvas)
 // ------------------------------------------------------------
@@ -302,6 +326,10 @@ function worldToScreen(aWx: number, aWy: number): [number, number] {
     return [m_cam_x + aWx * m_zoom, m_cam_y + aWy * m_zoom];
 }
 
+function screenToWorld(aSx: number, aSy: number): [number, number] {
+    return [(aSx - m_cam_x) / m_zoom, (aSy - m_cam_y) / m_zoom];
+}
+
 // ------------------------------------------------------------
 // Edge drawing (supports tapered, chevrons, or plain line)
 // ------------------------------------------------------------
@@ -314,8 +342,6 @@ function drawEdges(aW: number, aH: number): void {
             node_map.set(ln.node.id, ln);
         }
     }
-
-    const has_search = m_search_filter.length > 0;
 
     // Draw normal edges, then highlighted on top
     for (const edge of m_all_edges) {
@@ -332,14 +358,8 @@ function drawEdges(aW: number, aH: number): void {
         if (Math.max(x1, x2) < -margin || Math.min(x1, x2) > aW + margin) { continue; }
         if (Math.max(y1, y2) < -margin || Math.min(y1, y2) > aH + margin) { continue; }
 
-        // In "dim" mode, dim edges where neither endpoint matches search/focus
-        const from_matches_search = !has_search || nodeMatchesSearch(from_ln.node);
-        const to_matches_search = !has_search || nodeMatchesSearch(to_ln.node);
-        const from_in_focus = isNodeVisibleInFocus(from_ln.node.id);
-        const to_in_focus = isNodeVisibleInFocus(to_ln.node.id);
-        const search_dim = has_search && !from_matches_search && !to_matches_search;
-        const focus_dim = m_focused_node_id !== null && !from_in_focus && !to_in_focus;
-        const edge_alpha = (search_dim || focus_dim) ? 0.04 : 0.15;
+        // In "dim" mode, dim edges where both endpoints are dimmed
+        const edge_alpha = (isNodeDimmed(from_ln.node) && isNodeDimmed(to_ln.node)) ? 0.04 : 0.15;
         drawEdgeStyled(m_context, x1, y1, x2, y2, themeEdgeColor(edge_alpha));
     }
 
@@ -484,8 +504,6 @@ function drawNodes(aW: number, aH: number): void {
     const min_font_size = 3;
     const font_size = Math.max(min_font_size, 11 * m_zoom);
 
-    const has_search = m_search_filter.length > 0;
-
     for (const ln of m_layout_nodes) {
         if (isNodeFiltered(ln.node)) { continue; }
 
@@ -502,9 +520,7 @@ function drawNodes(aW: number, aH: number): void {
         }
 
         // In "dim" mode, reduce opacity for non-matching nodes
-        const matches_search = !has_search || nodeMatchesSearch(ln.node);
-        const in_focus = isNodeVisibleInFocus(ln.node.id);
-        const node_alpha = (!matches_search || !in_focus) ? 0.12 : 1;
+        const node_alpha = isNodeDimmed(ln.node) ? 0.12 : 1;
 
         const color = ln.node.color;
         const border_color = darken(color);
@@ -593,10 +609,8 @@ function drawGrid(aW: number, aH: number): void {
     const grid_screen = grid_world * m_zoom;
     if (grid_screen < 4) { return; }
 
-    const world_left = -m_cam_x / m_zoom;
-    const world_top = -m_cam_y / m_zoom;
-    const world_right = world_left + aW / m_zoom;
-    const world_bottom = world_top + aH / m_zoom;
+    const [world_left, world_top] = screenToWorld(0, 0);
+    const [world_right, world_bottom] = screenToWorld(aW, aH);
 
     const start_x = Math.floor(world_left / grid_world) * grid_world;
     const start_y = Math.floor(world_top / grid_world) * grid_world;
@@ -651,25 +665,16 @@ function drawMinimap(aCanvasW: number, aCanvasH: number): void {
     if (!m_context || m_layout_nodes.length === 0) { return; }
 
     // Compute bounding box of all visible nodes
-    let min_x = Infinity, min_y = Infinity, max_x = -Infinity, max_y = -Infinity;
-    let count = 0;
-    for (const ln of m_layout_nodes) {
-        if (isNodeFiltered(ln.node)) { continue; }
-        min_x = Math.min(min_x, ln.x - ln.w / 2);
-        max_x = Math.max(max_x, ln.x + ln.w / 2);
-        min_y = Math.min(min_y, ln.y - NODE_H / 2);
-        max_y = Math.max(max_y, ln.y + NODE_H / 2);
-        count++;
-    }
-    if (count === 0) { return; }
+    const bounds = computeVisibleBounds();
+    if (bounds.count === 0) { return; }
 
-    const world_w = max_x - min_x || 1;
-    const world_h = max_y - min_y || 1;
+    const world_w = bounds.maxX - bounds.minX || 1;
+    const world_h = bounds.maxY - bounds.minY || 1;
 
     // Add some padding to the world bounds
     const pad = Math.max(world_w, world_h) * 0.05;
-    const w_min_x = min_x - pad;
-    const w_min_y = min_y - pad;
+    const w_min_x = bounds.minX - pad;
+    const w_min_y = bounds.minY - pad;
     const w_w = world_w + pad * 2;
     const w_h = world_h + pad * 2;
 
@@ -704,7 +709,6 @@ function drawMinimap(aCanvasW: number, aCanvasH: number): void {
             node_map.set(ln.node.id, ln);
         }
     }
-    const has_search = m_search_filter.length > 0;
     for (const edge of m_all_edges) {
         const from_ln = node_map.get(edge.from);
         const to_ln = node_map.get(edge.to);
@@ -722,10 +726,7 @@ function drawMinimap(aCanvasW: number, aCanvasH: number): void {
     // Draw nodes as small dots (reflecting search/focus dim)
     for (const ln of m_layout_nodes) {
         if (isNodeFiltered(ln.node)) { continue; }
-        // In "dim" mode, reduce opacity for non-matching nodes
-        const matches_search = !has_search || nodeMatchesSearch(ln.node);
-        const in_focus = isNodeVisibleInFocus(ln.node.id);
-        const is_dimmed = !matches_search || !in_focus;
+        const is_dimmed = isNodeDimmed(ln.node);
         const nx = mmx + (ln.x - w_min_x) * scale;
         const ny = mmy + (ln.y - w_min_y) * scale;
         const dot_size = Math.max(2, ln.w * scale * 0.3);
@@ -736,10 +737,8 @@ function drawMinimap(aCanvasW: number, aCanvasH: number): void {
     m_context.globalAlpha = 1;
 
     // Draw viewport rectangle
-    const view_world_left = -m_cam_x / m_zoom;
-    const view_world_top = -m_cam_y / m_zoom;
-    const view_world_right = view_world_left + aCanvasW / m_zoom;
-    const view_world_bottom = view_world_top + aCanvasH / m_zoom;
+    const [view_world_left, view_world_top] = screenToWorld(0, 0);
+    const [view_world_right, view_world_bottom] = screenToWorld(aCanvasW, aCanvasH);
 
     const vx = mmx + (view_world_left - w_min_x) * scale;
     const vy = mmy + (view_world_top - w_min_y) * scale;
@@ -870,8 +869,9 @@ function attachCanvasEvents(aCanvas: HTMLCanvasElement): void {
             const rect = aCanvas.getBoundingClientRect();
             const mx = e.clientX - rect.left;
             const my = e.clientY - rect.top;
-            m_drag_node.x = (mx - m_drag_offset_x - m_cam_x) / m_zoom;
-            m_drag_node.y = (my - m_drag_offset_y - m_cam_y) / m_zoom;
+            const [wx, wy] = screenToWorld(mx - m_drag_offset_x, my - m_drag_offset_y);
+            m_drag_node.x = wx;
+            m_drag_node.y = wy;
             draw();
         } else if (m_is_panning) {
             m_was_panning = true;
@@ -966,8 +966,7 @@ function attachCanvasEvents(aCanvas: HTMLCanvasElement): void {
             return;
         }
 
-        const wx_before = (mx - m_cam_x) / m_zoom;
-        const wy_before = (my - m_cam_y) / m_zoom;
+        const [wx_before, wy_before] = screenToWorld(mx, my);
 
         const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
         m_zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, m_zoom * factor));
@@ -1337,6 +1336,17 @@ function createGraph(aNodes: GraphNode[], aEdges: GraphEdge[]): void {
 }
 
 /** Initialize layout nodes: preserve existing positions, new nodes in a circle */
+/** Arrange nodes in a circle of given radius, resetting velocities. */
+function arrangeNodesInCircle(aNodes: LayoutNode[], aRadius: number): void {
+    for (let i = 0; i < aNodes.length; i++) {
+        const angle = (2 * Math.PI * i) / aNodes.length;
+        aNodes[i].x = Math.cos(angle) * aRadius;
+        aNodes[i].y = Math.sin(angle) * aRadius;
+        aNodes[i].vx = 0;
+        aNodes[i].vy = 0;
+    }
+}
+
 function initLayoutNodes(aNodes: GraphNode[]): void {
     const existing_positions = new Map<string, { x: number; y: number; vx: number; vy: number }>();
     for (const ln of m_layout_nodes) {
@@ -1346,7 +1356,7 @@ function initLayoutNodes(aNodes: GraphNode[]): void {
     const widths = aNodes.map(n => measureNodeWidth(n.label));
 
     m_layout_nodes = [];
-    const radius = Math.max(100, aNodes.length * 10);
+    const new_nodes: LayoutNode[] = [];
 
     for (let i = 0; i < aNodes.length; i++) {
         const n = aNodes[i];
@@ -1355,51 +1365,28 @@ function initLayoutNodes(aNodes: GraphNode[]): void {
         if (existing) {
             m_layout_nodes.push({ node: n, x: existing.x, y: existing.y, w, vx: existing.vx, vy: existing.vy, mass: 1, pinned: false });
         } else {
-            const angle = (2 * Math.PI * i) / aNodes.length;
-            m_layout_nodes.push({
-                node: n,
-                x: Math.cos(angle) * radius,
-                y: Math.sin(angle) * radius,
-                w,
-                vx: 0,
-                vy: 0,
-                mass: 1,
-                pinned: false,
-            });
+            const ln: LayoutNode = { node: n, x: 0, y: 0, w, vx: 0, vy: 0, mass: 1, pinned: false };
+            m_layout_nodes.push(ln);
+            new_nodes.push(ln);
         }
     }
+    arrangeNodesInCircle(new_nodes, Math.max(100, aNodes.length * 10));
 }
 
 /** Reset all node positions to initial circle and restart simulation */
 function resetLayoutPositions(): void {
     stopSimulation();
-    const radius = Math.max(150, m_layout_nodes.length * 20);
-    for (let i = 0; i < m_layout_nodes.length; i++) {
-        const angle = (2 * Math.PI * i) / m_layout_nodes.length;
-        m_layout_nodes[i].x = Math.cos(angle) * radius;
-        m_layout_nodes[i].y = Math.sin(angle) * radius;
-        m_layout_nodes[i].vx = 0;
-        m_layout_nodes[i].vy = 0;
-    }
+    arrangeNodesInCircle(m_layout_nodes, Math.max(150, m_layout_nodes.length * 20));
     draw();
     startSimulation();
 }
 
 function centerOnNodes(): void {
     if (!m_canvas || m_layout_nodes.length === 0) { return; }
-    let min_x = Infinity, min_y = Infinity, max_x = -Infinity, max_y = -Infinity;
-    let count = 0;
-    for (const ln of m_layout_nodes) {
-        if (isNodeFiltered(ln.node)) { continue; }
-        min_x = Math.min(min_x, ln.x - ln.w / 2);
-        max_x = Math.max(max_x, ln.x + ln.w / 2);
-        min_y = Math.min(min_y, ln.y - NODE_H / 2);
-        max_y = Math.max(max_y, ln.y + NODE_H / 2);
-        count++;
-    }
-    if (count === 0) { return; }
-    const bw = max_x - min_x;
-    const bh = max_y - min_y;
+    const bounds = computeVisibleBounds();
+    if (bounds.count === 0) { return; }
+    const bw = bounds.maxX - bounds.minX;
+    const bh = bounds.maxY - bounds.minY;
     const cw = m_canvas.clientWidth;
     const ch = m_canvas.clientHeight;
 
@@ -1407,8 +1394,8 @@ function centerOnNodes(): void {
     m_zoom = Math.min((cw - pad * 2) / Math.max(1, bw), (ch - pad * 2) / Math.max(1, bh), 2);
     m_zoom = Math.max(ZOOM_MIN, m_zoom);
 
-    const center_wx = (min_x + max_x) / 2;
-    const center_wy = (min_y + max_y) / 2;
+    const center_wx = (bounds.minX + bounds.maxX) / 2;
+    const center_wy = (bounds.minY + bounds.maxY) / 2;
     m_cam_x = cw / 2 - center_wx * m_zoom;
     m_cam_y = ch / 2 - center_wy * m_zoom;
 
@@ -1770,14 +1757,7 @@ function focusOnNode(aNodeId: string): void {
 
     const visible_ids = m_focus_visible_ids ?? new Set<string>();
     const sub_nodes = m_layout_nodes.filter(ln => ln.node.id !== aNodeId && visible_ids.has(ln.node.id));
-    const radius = Math.max(150, sub_nodes.length * 25);
-    for (let i = 0; i < sub_nodes.length; i++) {
-        const angle = (2 * Math.PI * i) / sub_nodes.length;
-        sub_nodes[i].x = Math.cos(angle) * radius;
-        sub_nodes[i].y = Math.sin(angle) * radius;
-        sub_nodes[i].vx = 0;
-        sub_nodes[i].vy = 0;
-    }
+    arrangeNodesInCircle(sub_nodes, Math.max(150, sub_nodes.length * 25));
 
     // Center camera on origin
     if (m_canvas) {
@@ -1871,20 +1851,32 @@ function buildEdgeDirectionHtml(): string {
         `</div>`;
 }
 
+/** Sync all edge direction selects to the given value, except the source. */
+function syncEdgeDirectionSelects(aValue: string, aSourceId: string): void {
+    for (const id of ['bc-edgeDirection', 's-edgeDirection']) {
+        if (id === aSourceId) { continue; }
+        const sel = document.getElementById(id) as HTMLSelectElement | null;
+        if (sel) { sel.value = aValue; }
+    }
+}
+
+/** Apply a new edge direction: persist, rebuild focus, sync selects, redraw. */
+function applyEdgeDirection(aDir: EdgeDirection, aSourceId: string): void {
+    m_edge_direction = aDir;
+    m_vscode.postMessage({ type: 'updateSetting', key: 'graphEdgeDirection', value: m_edge_direction });
+    refreshFocusSubgraph();
+    syncEdgeDirectionSelects(aDir as string, aSourceId);
+    restartSimIfEnabled();
+    draw();
+}
+
 function attachEdgeDirectionEvents(): void {
     const sel = document.getElementById('bc-edgeDirection') as HTMLSelectElement | null;
     const reset_btn = document.getElementById('bc-edgeDir-reset') as HTMLButtonElement | null;
     if (!sel) { return; }
 
     sel.addEventListener('change', () => {
-        m_edge_direction = sel.value as EdgeDirection;
-        m_vscode.postMessage({ type: 'updateSetting', key: 'graphEdgeDirection', value: m_edge_direction });
-        refreshFocusSubgraph();
-        // Sync the settings panel select if open
-        const settings_sel = document.getElementById('s-edgeDirection') as HTMLSelectElement | null;
-        if (settings_sel) { settings_sel.value = sel.value; }
-        restartSimIfEnabled();
-        draw();
+        applyEdgeDirection(sel.value as EdgeDirection, 'bc-edgeDirection');
     });
 
     if (reset_btn) {
@@ -1954,6 +1946,27 @@ function updateBreadcrumb(): void {
 function isNodeVisibleInFocus(aNodeId: string): boolean {
     if (!m_focus_visible_ids) { return true; }
     return m_focus_visible_ids.has(aNodeId);
+}
+
+/** Apply a color to all nodes of a given type and persist the full color map. */
+function applyNodeColor(aType: string, aColor: string): void {
+    for (const n of m_all_nodes) {
+        if (n.type === aType) { n.color = aColor; }
+    }
+    draw();
+    buildFilterCheckboxes();
+    persistNodeColors();
+}
+
+/** Persist the current node color map to workspace settings. */
+function persistNodeColors(): void {
+    const color_map: Record<string, string> = {};
+    const types = new Set(m_all_nodes.map(n => n.type));
+    for (const t of types) {
+        const node = m_all_nodes.find(n => n.type === t);
+        if (node) { color_map[t] = node.color; }
+    }
+    m_vscode.postMessage({ type: 'updateSetting', key: 'graphNodeColors', value: color_map });
 }
 
 function buildNodeColorPickersHtml(): string {
@@ -2100,14 +2113,7 @@ function attachSettingsEvents(): void {
     // Edge direction
     const dir_sel = settings_panel.querySelector('#s-edgeDirection') as HTMLSelectElement;
     dir_sel.addEventListener('change', () => {
-        m_edge_direction = dir_sel.value as EdgeDirection;
-        m_vscode.postMessage({ type: 'updateSetting', key: 'graphEdgeDirection', value: m_edge_direction });
-        // Sync breadcrumb select
-        const bc_sel = document.getElementById('bc-edgeDirection') as HTMLSelectElement | null;
-        if (bc_sel) { bc_sel.value = dir_sel.value; }
-        refreshFocusSubgraph();
-        restartSimIfEnabled();
-        draw();
+        applyEdgeDirection(dir_sel.value as EdgeDirection, 's-edgeDirection');
     });
 
     // Auto-pause checkbox
@@ -2147,21 +2153,7 @@ function attachSettingsEvents(): void {
     for (const type of present_types) {
         const picker = settings_panel?.querySelector(`#s-color-${type}`) as HTMLInputElement | null;
         if (!picker) { continue; }
-        picker.addEventListener('input', () => {
-            const new_color = picker.value;
-            for (const n of m_all_nodes) {
-                if (n.type === type) { n.color = new_color; }
-            }
-            draw();
-            buildFilterCheckboxes();
-            // Persist all node colors as an object
-            const color_map: Record<string, string> = {};
-            for (const t of present_types) {
-                const node = m_all_nodes.find(n => n.type === t);
-                if (node) { color_map[t] = node.color; }
-            }
-            m_vscode.postMessage({ type: 'updateSetting', key: 'graphNodeColors', value: color_map });
-        });
+        picker.addEventListener('input', () => { applyNodeColor(type, picker.value); });
     }
 
     // Reset buttons — restore any widget to its default value from provider_defaults
@@ -2221,21 +2213,8 @@ function attachSettingsEvents(): void {
             const def_color = m_provider_defaults.nodeColors?.[type];
             if (!def_color) { return; }
             const picker = settings_panel!.querySelector(`#s-color-${type}`) as HTMLInputElement | null;
-            if (!picker) { return; }
-            picker.value = def_color;
-            for (const n of m_all_nodes) {
-                if (n.type === type) { n.color = def_color; }
-            }
-            draw();
-            buildFilterCheckboxes();
-            // Persist all node colors
-            const color_map: Record<string, string> = {};
-            const present = new Set(m_all_nodes.map(n => n.type));
-            for (const t of present) {
-                const node = m_all_nodes.find(n => n.type === t);
-                if (node) { color_map[t] = node.color; }
-            }
-            m_vscode.postMessage({ type: 'updateSetting', key: 'graphNodeColors', value: color_map });
+            if (picker) { picker.value = def_color; }
+            applyNodeColor(type, def_color);
         });
     });
 
@@ -2343,16 +2322,20 @@ function getCssVar(aName: string): string {
     return getComputedStyle(document.documentElement).getPropertyValue(aName).trim();
 }
 
+/** Compute perceived luminance from a hex color (0..1) */
+function hexToLuminance(aHex: string): number {
+    const r = parseInt(aHex.slice(1, 3), 16);
+    const g = parseInt(aHex.slice(3, 5), 16);
+    const b = parseInt(aHex.slice(5, 7), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+}
+
 /** Returns true when the current VS Code theme is light */
 function isLightTheme(): boolean {
     const bg = getCssVar('--vscode-editor-background');
     if (!bg) { return false; }
-    // Parse the hex color and compute luminance
     const hex = bg.startsWith('#') ? bg : '#1e1e1e';
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5;
+    return hexToLuminance(hex) > 0.5;
 }
 
 /** Foreground color that contrasts with the editor background */
@@ -2380,11 +2363,7 @@ function adjustBrightness(aHex: string, aFactor: number): string {
 
 /** Returns '#000000' or '#ffffff' depending on which has better contrast */
 function contrastTextColor(aHex: string): string {
-    const r = parseInt(aHex.slice(1, 3), 16);
-    const g = parseInt(aHex.slice(3, 5), 16);
-    const b = parseInt(aHex.slice(5, 7), 16);
-    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-    return luminance > 0.5 ? '#000000' : '#ffffff';
+    return hexToLuminance(aHex) > 0.5 ? '#000000' : '#ffffff';
 }
 
 // ------------------------------------------------------------

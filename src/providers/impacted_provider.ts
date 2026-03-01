@@ -1,6 +1,9 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { Target, TargetType } from '../cmake/types';
+import { TARGET_ICONS } from '../utils/target_constants';
+import { resolveSourcePath, escapeRegex } from '../utils/path_utils';
+import { FilterableTreeProvider } from './filterable_provider';
 
 // ------------------------------------------------------------
 // Nodes
@@ -28,16 +31,6 @@ interface MessageNode { kind: 'message'; text: string; }
 
 type TreeNode = FilterNode | SectionNode | TargetNode | MessageNode;
 
-const TARGET_ICONS: Record<TargetType, string> = {
-    EXECUTABLE: 'run',
-    STATIC_LIBRARY: 'package',
-    SHARED_LIBRARY: 'library',
-    MODULE_LIBRARY: 'library',
-    OBJECT_LIBRARY: 'file-binary',
-    INTERFACE_LIBRARY: 'symbol-interface',
-    SYSTEM_LIBRARY: 'ellipse',
-    UTILITY: 'tools',
-};
 
 const LIBRARY_TYPES = new Set<TargetType>([
     'STATIC_LIBRARY', 'SHARED_LIBRARY', 'MODULE_LIBRARY',
@@ -47,10 +40,7 @@ const LIBRARY_TYPES = new Set<TargetType>([
 // ------------------------------------------------------------
 // ImpactedTargetsProvider
 // ------------------------------------------------------------
-export class ImpactedTargetsProvider implements vscode.TreeDataProvider<TreeNode> {
-    private readonly m_onDidChangeTreeData = new vscode.EventEmitter<void>();
-    readonly onDidChangeTreeData: vscode.Event<void> = this.m_onDidChangeTreeData.event;
-
+export class ImpactedTargetsProvider extends FilterableTreeProvider<TreeNode> {
     /** Normalized absolute file path → all impacted targets (direct + transitive) */
     private m_fileToTargets = new Map<string, Target[]>();
 
@@ -73,9 +63,6 @@ export class ImpactedTargetsProvider implements vscode.TreeDataProvider<TreeNode
 
     /** targetName → list of ctest test names */
     private m_testsByTarget = new Map<string, string[]>();
-
-    // Filter
-    private m_filter = '';
 
     // ------------------------------------------------------------
     // Public API
@@ -118,7 +105,7 @@ export class ImpactedTargetsProvider implements vscode.TreeDataProvider<TreeNode
             const all_impacted = this.collectAllDependents(target.id);
 
             for (const source of target.sources) {
-                const abs_path = this.resolveSourcePath(target, source.path);
+                const abs_path = resolveSourcePath(this.m_projectSourceDir, source.path);
                 const key = this.normalizeKey(abs_path);
 
                 // Direct target tracking
@@ -144,7 +131,7 @@ export class ImpactedTargetsProvider implements vscode.TreeDataProvider<TreeNode
             }
         }
 
-        this.m_onDidChangeTreeData.fire();
+        this._onDidChangeTreeData.fire();
     }
 
     clear(): void {
@@ -155,7 +142,7 @@ export class ImpactedTargetsProvider implements vscode.TreeDataProvider<TreeNode
         this.m_parentMap = new WeakMap();
         this.m_activeFile = null;
         this.m_filter = '';
-        this.m_onDidChangeTreeData.fire();
+        this._onDidChangeTreeData.fire();
     }
 
     /**
@@ -166,31 +153,12 @@ export class ImpactedTargetsProvider implements vscode.TreeDataProvider<TreeNode
         if (key === this.m_activeFile) { return; }
         this.m_activeFile = key;
         this.m_parentMap = new WeakMap();
-        this.m_onDidChangeTreeData.fire();
+        this._onDidChangeTreeData.fire();
     }
 
-    // ------------------------------------------------------------
-    // Filter
-    // ------------------------------------------------------------
-
-    setFilter(aPattern: string): void {
-        this.m_filter = aPattern.toLowerCase();
+    protected onFilterChanged(): void {
         this.m_parentMap = new WeakMap();
-        this.m_onDidChangeTreeData.fire();
-    }
-
-    clearFilter(): void {
-        this.m_filter = '';
-        this.m_parentMap = new WeakMap();
-        this.m_onDidChangeTreeData.fire();
-    }
-
-    get currentFilter(): string {
-        return this.m_filter;
-    }
-
-    get hasFilter(): boolean {
-        return this.m_filter.length > 0;
+        this._onDidChangeTreeData.fire();
     }
 
     // ------------------------------------------------------------
@@ -205,7 +173,7 @@ export class ImpactedTargetsProvider implements vscode.TreeDataProvider<TreeNode
     setTestMap(aMap: Map<string, string[]>): void {
         this.m_testsByTarget = aMap;
         this.m_parentMap = new WeakMap();
-        this.m_onDidChangeTreeData.fire();
+        this._onDidChangeTreeData.fire();
     }
 
     /** True if the given target name is a known test executable. */
@@ -422,12 +390,6 @@ export class ImpactedTargetsProvider implements vscode.TreeDataProvider<TreeNode
     // Paths
     // ------------------------------------------------------------
 
-    private resolveSourcePath(aTarget: Target, aSourcePath: string): string {
-        const is_abs = /^([a-zA-Z]:[\\/]|\/)/.test(aSourcePath);
-        if (is_abs) { return path.normalize(aSourcePath); }
-        return path.normalize(path.join(this.m_projectSourceDir, aSourcePath));
-    }
-
     private normalizeKey(aFilePath: string): string {
         return path.normalize(aFilePath).toLowerCase();
     }
@@ -453,12 +415,6 @@ export class ImpactedTargetsProvider implements vscode.TreeDataProvider<TreeNode
 }
 
 // ------------------------------------------------------------
-// Regex helpers (module-level)
-// ------------------------------------------------------------
-
-function escapeRegex(aStr: string): string {
-    return aStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 /**
  * Build a ctest -R regex from a list of test names.

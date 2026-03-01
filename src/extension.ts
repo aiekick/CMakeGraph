@@ -15,6 +15,7 @@ import { computeDirectLinks } from './cmake/direct_links_converter';
 import { debugDirectLinks, debugMissingLinks, debugSignatures } from './cmake/debug_direct_links';
 import { wksConfigManager } from './config/workspace/manager';
 import { appConfigManager } from './config/app/manager';
+import { escapeRegex } from './utils/path_utils';
 
 // ------------------------------------------------------------
 // Types
@@ -511,9 +512,6 @@ async function cmdTestImpactedSection(aNode?: unknown): Promise<void> {
     }
 }
 
-function escapeRegex(aStr: string): string {
-    return aStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 // ------------------------------------------------------------
 // Outline — filter & expand
