@@ -7,11 +7,19 @@
   "engines": {
     "vscode": "^1.80.0"
   },
+  "icon": "medias/icon.png",
+  "galleryBanner": {
+    "color": "#008080",
+    "theme": "dark"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/aiekick/CMakeGraph"
   },
+  "extensionKind": [
+    "ui"
+  ],
   "categories": [
     "Other"
   ],
@@ -79,9 +87,9 @@
         },
         "CMakeGraph.graphTaperedWidth": {
           "type": "number",
-          "default": 1.0,
+          "default": 1,
           "minimum": 0.1,
-          "maximum": 5.0,
+          "maximum": 5,
           "description": "Width multiplier for tapered edges"
         },
         "CMakeGraph.graphNodeColors": {
@@ -740,6 +748,7 @@
     "@types/vscode": "^1.80.0",
     "archiver": "^7.0.1",
     "esbuild": "^0.27.3",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vsce": "^2.15.0"
   }
 }
