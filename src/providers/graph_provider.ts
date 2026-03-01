@@ -41,14 +41,81 @@ interface GraphEdge {
 }
 
 // ------------------------------------------------------------
+// Graph document (virtual, read-only)
+// ------------------------------------------------------------
+interface GraphDocument extends vscode.CustomDocument {
+    readonly focusTargetId?: string;
+}
+
+// ------------------------------------------------------------
 // DependencyGraphProvider
 // ------------------------------------------------------------
-export class DependencyGraphProvider {
+export class DependencyGraphProvider implements vscode.CustomReadonlyEditorProvider<GraphDocument> {
+    public static readonly viewType = 'CMakeGraph.graphEditor';
+
     private m_targets: Target[] = [];
     private m_panels: Set<vscode.WebviewPanel> = new Set();
     private m_activePanel?: vscode.WebviewPanel;
 
     constructor(private readonly m_extensionUri: vscode.Uri) { }
+
+    // ---- CustomReadonlyEditorProvider ----
+
+    openCustomDocument(
+        aUri: vscode.Uri,
+        _aOpenContext: vscode.CustomDocumentOpenContext,
+        _aToken: vscode.CancellationToken,
+    ): GraphDocument {
+        const params = new URLSearchParams(aUri.query);
+        const focus_target_id = params.get('focusTargetId') ?? undefined;
+        return { uri: aUri, focusTargetId: focus_target_id, dispose: () => { } };
+    }
+
+    resolveCustomEditor(
+        aDocument: GraphDocument,
+        aWebviewPanel: vscode.WebviewPanel,
+        _aToken: vscode.CancellationToken,
+    ): void {
+        aWebviewPanel.webview.options = {
+            enableScripts: true,
+            localResourceRoots: [
+                vscode.Uri.joinPath(this.m_extensionUri, 'out'),
+                vscode.Uri.joinPath(this.m_extensionUri, 'dist'),
+                vscode.Uri.joinPath(this.m_extensionUri, 'medias'),
+            ],
+        };
+
+        this.m_panels.add(aWebviewPanel);
+        this.m_activePanel = aWebviewPanel;
+
+        aWebviewPanel.webview.html = this.getHtml(aWebviewPanel.webview);
+
+        const focus_id = aDocument.focusTargetId;
+
+        aWebviewPanel.webview.onDidReceiveMessage(aMsg => {
+            if (aMsg.type === 'ready') {
+                aWebviewPanel.webview.postMessage(this.buildGraphDataMessage());
+                if (focus_id) {
+                    aWebviewPanel.webview.postMessage({ type: 'focusNode', targetId: focus_id });
+                }
+            } else {
+                this.handleMessage(aMsg);
+            }
+        });
+
+        aWebviewPanel.onDidChangeViewState(() => {
+            if (aWebviewPanel.active) {
+                this.m_activePanel = aWebviewPanel;
+            }
+        });
+
+        aWebviewPanel.onDidDispose(() => {
+            this.m_panels.delete(aWebviewPanel);
+            if (this.m_activePanel === aWebviewPanel) {
+                this.m_activePanel = undefined;
+            }
+        });
+    }
 
     // ---- Public API ----
 
@@ -57,53 +124,12 @@ export class DependencyGraphProvider {
     }
 
     openInEditor(aFocusTargetId?: string): void {
-        const title = aFocusTargetId
-            ? `Graph: ${this.m_targets.find(t => t.id === aFocusTargetId)?.name ?? 'Target'}`
-            : 'Dependency Graph';
-
-        const panel = vscode.window.createWebviewPanel(
-            'CMakeGraph.dependencyGraphEditor',
-            title,
-            vscode.ViewColumn.Active,
-            {
-                enableScripts: true,
-                retainContextWhenHidden: true,
-                localResourceRoots: [
-                    vscode.Uri.joinPath(this.m_extensionUri, 'out'),
-                    vscode.Uri.joinPath(this.m_extensionUri, 'dist'),
-                    vscode.Uri.joinPath(this.m_extensionUri, 'medias'),
-                ],
-            },
-        );
-
-        this.m_panels.add(panel);
-        this.m_activePanel = panel;
-
-        panel.webview.html = this.getHtml(panel.webview);
-
-        panel.webview.onDidReceiveMessage(aMsg => {
-            if (aMsg.type === 'ready') {
-                panel.webview.postMessage(this.buildGraphDataMessage());
-                if (aFocusTargetId) {
-                    panel.webview.postMessage({ type: 'focusNode', targetId: aFocusTargetId });
-                }
-            } else {
-                this.handleMessage(aMsg);
-            }
-        });
-
-        panel.onDidChangeViewState(() => {
-            if (panel.active) {
-                this.m_activePanel = panel;
-            }
-        });
-
-        panel.onDidDispose(() => {
-            this.m_panels.delete(panel);
-            if (this.m_activePanel === panel) {
-                this.m_activePanel = undefined;
-            }
-        });
+        const name = aFocusTargetId
+            ? `graph-${this.m_targets.find(t => t.id === aFocusTargetId)?.name ?? 'target'}`
+            : 'dependency-graph';
+        const query = aFocusTargetId ? `?focusTargetId=${encodeURIComponent(aFocusTargetId)}` : '';
+        const uri = vscode.Uri.from({ scheme: 'cmake-graph', path: `${name}.cmake-graph`, query: query.slice(1) || undefined });
+        vscode.commands.executeCommand('vscode.openWith', uri, DependencyGraphProvider.viewType);
     }
 
     refreshActivePanel(): void {
@@ -192,7 +218,6 @@ export class DependencyGraphProvider {
     private handleMessage(aMsg: any): void {
         switch (aMsg.type) {
             case 'nodeClick': {
-                // Reveal in Project Outline (reuse existing revealDependency command)
                 vscode.commands.executeCommand('CMakeGraph.revealDependency', {
                     kind: 'dependency',
                     target: { id: aMsg.targetId as string },

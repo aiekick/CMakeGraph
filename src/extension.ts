@@ -100,6 +100,19 @@ export async function activate(aContext: vscode.ExtensionContext): Promise<void>
     });
 
     graph_provider = new DependencyGraphProvider(aContext.extensionUri);
+    aContext.subscriptions.push(
+        vscode.workspace.registerTextDocumentContentProvider('cmake-graph', {
+            provideTextDocumentContent: () => '',
+        }),
+        vscode.window.registerCustomEditorProvider(
+            DependencyGraphProvider.viewType,
+            graph_provider,
+            {
+                supportsMultipleEditorsPerDocument: false,
+                webviewOptions: { retainContextWhenHidden: true },
+            },
+        ),
+    );
 
     // Update impacted targets when active editor changes
     impacted_provider.setActiveFile(

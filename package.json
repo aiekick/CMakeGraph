@@ -182,6 +182,18 @@
         }
       ]
     },
+    "customEditors": [
+      {
+        "viewType": "CMakeGraph.graphEditor",
+        "displayName": "Dependency Graph",
+        "selector": [
+          {
+            "filenamePattern": "*.cmake-graph"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
     "commands": [
       {
         "command": "CMakeGraph.cancelTask",
@@ -427,23 +439,28 @@
     "menus": {
       "editor/title": [
         {
+          "command": "workbench.action.splitEditor",
+          "when": "activeCustomEditorId != 'CMakeGraph.graphEditor'",
+          "group": "navigation"
+        },
+        {
           "command": "CMakeGraph.graphEditorRefresh",
-          "when": "activeWebviewPanelId == 'CMakeGraph.dependencyGraphEditor'",
+          "when": "activeCustomEditorId == 'CMakeGraph.graphEditor'",
           "group": "navigation@1"
         },
         {
           "command": "CMakeGraph.graphEditorSettings",
-          "when": "activeWebviewPanelId == 'CMakeGraph.dependencyGraphEditor'",
+          "when": "activeCustomEditorId == 'CMakeGraph.graphEditor'",
           "group": "navigation@2"
         },
         {
           "command": "CMakeGraph.graphEditorScreenshot",
-          "when": "activeWebviewPanelId == 'CMakeGraph.dependencyGraphEditor'",
+          "when": "activeCustomEditorId == 'CMakeGraph.graphEditor'",
           "group": "navigation@3"
         },
         {
           "command": "CMakeGraph.graphEditorExportCsv",
-          "when": "activeWebviewPanelId == 'CMakeGraph.dependencyGraphEditor'",
+          "when": "activeCustomEditorId == 'CMakeGraph.graphEditor'",
           "group": "navigation@4"
         }
       ],
