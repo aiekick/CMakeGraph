@@ -71,6 +71,9 @@ let m_minimap_enabled = true;
 let m_settings_collapse_state: Record<string, boolean> = { edges: false, colors: true, simulation: true, display: false, controls: false };
 let m_settings_panel_visible = false;
 let m_total_sim_energy = 0;
+let m_frame_delta_ms = 0;
+let m_frame_last_time = 0;
+let m_footer_loaded = false;
 
 // Default values received from the provider (workspace config defaults).
 // Used by reset buttons to restore a widget to its default value.
@@ -139,13 +142,13 @@ interface SimVars {
 // Clamping definitions for each parameter: [min, max]
 const SIM_CLAMP: Record<keyof SimVars, [number, number]> = {
     repulsion: [100, 200000],
-    attraction: [0.0001, 1],
-    gravity: [0.0001, 1],
+    attraction: [0.0001, 2],
+    gravity: [0.0001, 2],
     linkLength: [0.001, 10],
     minDistance: [1, 50000],
     stepsPerFrame: [1, 20],
-    threshold: [0.001, 10],
-    damping: [0.1, 1.0],
+    threshold: [0.001, 500],
+    damping: [0.01, 0.99],
     taperedWidth: [0.1, 10],
 };
 
@@ -543,7 +546,7 @@ function drawNodes(aW: number, aH: number): void {
 
         // Selection border
         if (ln.node.id === m_selected_node_id) {
-            m_context.strokeStyle = getCssVar('--vscode-focusBorder') || themeFg();
+            m_context.strokeStyle = isLightTheme() ? '#000000' : '#ffffff';
             m_context.lineWidth = Math.max(2, zoom3);
             const sel_offset = ln.pinned ? zoom8 : zoom4;
             drawBox(m_context, sx, sy, sw + sel_offset, sh + sel_offset, r + zoom2, true);
@@ -1003,6 +1006,9 @@ function stopSimulation(): void {
         cancelAnimationFrame(m_sim_anim_frame);
         m_sim_anim_frame = null;
     }
+    m_frame_delta_ms = 0;
+    m_frame_last_time = 0;
+    updatePerFrameDatas();
 }
 
 function startStopSimulation(): void {
@@ -1215,6 +1221,13 @@ function m_applyForces(): void {
 
 function simulationStep(): void {
     if (!m_sim_running) { return; }
+
+    // Frame delta
+    const now = performance.now();
+    if (m_frame_last_time > 0) {
+        m_frame_delta_ms = now - m_frame_last_time;
+    }
+    m_frame_last_time = now;
 
     for (let step = 0; step < m_sim_vars.stepsPerFrame; step++) {
         m_total_sim_energy = 0;
@@ -1501,8 +1514,10 @@ function buildFilterCheckboxes(): void {
     const container = document.getElementById('filters')!;
     container.innerHTML = '';
 
+    // Count only nodes visible in the current focus view (or all nodes if not focused)
     const type_counts = new Map<string, number>();
     for (const n of m_all_nodes) {
+        if (m_focus_visible_ids && !m_focus_visible_ids.has(n.id)) { continue; }
         type_counts.set(n.type, (type_counts.get(n.type) ?? 0) + 1);
     }
 
@@ -1584,20 +1599,26 @@ function updatePerFrameDatas(): void {
     if (energy_el) {
         energy_el.textContent = m_total_sim_energy.toFixed(2);
     }
+    const delta_el = document.getElementById('f-delta');
+    if (delta_el) {
+        delta_el.textContent = m_frame_delta_ms > 0 ? m_frame_delta_ms.toFixed(1) : 'paused';
+    }
 }
 
 function updateFooter(): void {
     const footer = document.getElementById('footer')!;
 
     // Fast path: only update per frame datas if the selected node hasn't changed
-    if (m_footer_node_id === m_selected_node_id) {
+    if (m_footer_loaded && (m_footer_node_id === m_selected_node_id)) {
         updatePerFrameDatas();
         return;
     }
 
     // Full rebuild needed (selection changed)
     m_footer_node_id = m_selected_node_id;
-    let html = `<span><span class="info-label">Energy:</span> <span id="f-energy" class="info-value">${m_total_sim_energy.toFixed(2)}</span></span>`;
+    let html =
+        `<span><span class="info-label">Delta:</span> <span id="f-delta" class="info-value">${m_frame_delta_ms > 0 ? m_frame_delta_ms.toFixed(1) : '—'}</span> <span class="info-label">ms</span></span>` +
+        `<span><span class="info-label">Energy:</span> <span id="f-energy" class="info-value">${m_total_sim_energy.toFixed(2)}</span></span>`;
 
     if (!m_selected_node_id) {
         footer.innerHTML = html;
@@ -1624,6 +1645,8 @@ function updateFooter(): void {
             ln.vy = 0;
         }
     });
+
+    m_footer_loaded = true;
 }
 
 function escapeHtml(aS: string): string {
@@ -1682,6 +1705,30 @@ function rebuildFocusVisibleIds(): void {
     m_focus_visible_ids = ids;
 }
 
+/**
+ * Rebuild focus subgraph from the given node: compute depths, max depth,
+ * reset depth to max, rebuild visible ids, update filter checkboxes and breadcrumb.
+ * Centralises the logic shared by focusOnNode, navigateBreadcrumb and edge-direction changes.
+ */
+function rebuildFocusSubgraph(aNodeId: string): void {
+    m_focus_node_depths = buildConnectedSubgraph(aNodeId);
+    m_focus_max_depth = 0;
+    for (const d of m_focus_node_depths.values()) {
+        if (d > m_focus_max_depth) { m_focus_max_depth = d; }
+    }
+    m_focus_depth = m_focus_max_depth;
+    rebuildFocusVisibleIds();
+    buildFilterCheckboxes();
+    updateBreadcrumb();
+}
+
+/** Refresh the current focus subgraph (e.g. after edge-direction change). No-op if not in focus mode. */
+function refreshFocusSubgraph(): void {
+    if (m_focused_node_id) {
+        rebuildFocusSubgraph(m_focused_node_id);
+    }
+}
+
 /** Shift world origin to a node's position, compensate camera so nothing visually moves. */
 function shiftOriginToNode(aNodeId: string): void {
     const focus_ln = m_layout_nodes.find(ln => ln.node.id === aNodeId);
@@ -1700,14 +1747,15 @@ function focusOnNode(aNodeId: string): void {
     const node = m_all_nodes.find(n => n.id === aNodeId);
     if (!node) { return; }
 
-    // Build the full recursively-connected subgraph from this node
-    m_focus_node_depths = buildConnectedSubgraph(aNodeId);
-    m_focus_max_depth = 0;
-    for (const d of m_focus_node_depths.values()) {
-        if (d > m_focus_max_depth) { m_focus_max_depth = d; }
+    // Check if this node is already at the end of the history
+    if (m_focus_history.length === 0 || m_focus_history[m_focus_history.length - 1].nodeId !== aNodeId) {
+        m_focus_history.push({ nodeId: aNodeId, label: node.label });
     }
-    m_focus_depth = m_focus_max_depth; // default to max
-    rebuildFocusVisibleIds();
+    m_focused_node_id = aNodeId;
+    m_selected_node_id = aNodeId;
+
+    // Build subgraph, depths, filters, breadcrumb
+    rebuildFocusSubgraph(aNodeId);
 
     // Pin the root node and place it at (0,0).
     // Arrange visible sub-nodes in a circle around the root.
@@ -1738,24 +1786,15 @@ function focusOnNode(aNodeId: string): void {
         m_zoom = 1;
     }
 
-    // Check if this node is already at the end of the history
-    if (m_focus_history.length === 0 || m_focus_history[m_focus_history.length - 1].nodeId !== aNodeId) {
-        m_focus_history.push({ nodeId: aNodeId, label: node.label });
-    }
-    m_focused_node_id = aNodeId;
-    m_selected_node_id = aNodeId;
-
     restartSimIfEnabled();
-    updateBreadcrumb();
     updateFooter();
     draw();
 }
 
 function exitFocusView(): void {
-    // Unpin the focused root node
-    if (m_focused_node_id) {
-        const root_ln = m_layout_nodes.find(ln => ln.node.id === m_focused_node_id);
-        if (root_ln) { root_ln.pinned = false; }
+    // Unpin all nodes when exiting focus view
+    for (const ln of m_layout_nodes) {
+        ln.pinned = false;
     }
     m_focused_node_id = null;
     m_focus_history = [];
@@ -1763,6 +1802,7 @@ function exitFocusView(): void {
     m_focus_node_depths = null;
     m_focus_depth = 0;
     m_focus_max_depth = 0;
+    buildFilterCheckboxes();
     updateBreadcrumb();
     restartSimIfEnabled();
     draw();
@@ -1780,16 +1820,8 @@ function navigateBreadcrumb(aIndex: number): void {
     m_focused_node_id = entry.nodeId;
     m_selected_node_id = entry.nodeId;
 
-    // Rebuild the connected subgraph from the navigated node
-    m_focus_node_depths = buildConnectedSubgraph(entry.nodeId);
-    m_focus_max_depth = 0;
-    for (const d of m_focus_node_depths.values()) {
-        if (d > m_focus_max_depth) { m_focus_max_depth = d; }
-    }
-    m_focus_depth = m_focus_max_depth;
-    rebuildFocusVisibleIds();
+    rebuildFocusSubgraph(entry.nodeId);
     restartSimIfEnabled();
-    updateBreadcrumb();
     updateFooter();
     draw();
 }
@@ -1815,6 +1847,7 @@ function attachDepthEvents(): void {
         m_focus_depth = Math.max(1, Math.min(m_focus_max_depth, d));
         input.value = String(m_focus_depth);
         rebuildFocusVisibleIds();
+        buildFilterCheckboxes();
         restartSimIfEnabled();
         draw();
     };
@@ -1846,17 +1879,7 @@ function attachEdgeDirectionEvents(): void {
     sel.addEventListener('change', () => {
         m_edge_direction = sel.value as EdgeDirection;
         m_vscode.postMessage({ type: 'updateSetting', key: 'graphEdgeDirection', value: m_edge_direction });
-        // If in focus mode, rebuild subgraph with new direction
-        if (m_focused_node_id) {
-            m_focus_node_depths = buildConnectedSubgraph(m_focused_node_id);
-            m_focus_max_depth = 0;
-            for (const d of m_focus_node_depths.values()) {
-                if (d > m_focus_max_depth) { m_focus_max_depth = d; }
-            }
-            m_focus_depth = Math.min(m_focus_depth, m_focus_max_depth);
-            rebuildFocusVisibleIds();
-            updateBreadcrumb();
-        }
+        refreshFocusSubgraph();
         // Sync the settings panel select if open
         const settings_sel = document.getElementById('s-edgeDirection') as HTMLSelectElement | null;
         if (settings_sel) { settings_sel.value = sel.value; }
@@ -2082,17 +2105,7 @@ function attachSettingsEvents(): void {
         // Sync breadcrumb select
         const bc_sel = document.getElementById('bc-edgeDirection') as HTMLSelectElement | null;
         if (bc_sel) { bc_sel.value = dir_sel.value; }
-        // If in focus mode, rebuild subgraph with new direction
-        if (m_focused_node_id) {
-            m_focus_node_depths = buildConnectedSubgraph(m_focused_node_id);
-            m_focus_max_depth = 0;
-            for (const d of m_focus_node_depths.values()) {
-                if (d > m_focus_max_depth) { m_focus_max_depth = d; }
-            }
-            m_focus_depth = Math.min(m_focus_depth, m_focus_max_depth);
-            rebuildFocusVisibleIds();
-            updateBreadcrumb();
-        }
+        refreshFocusSubgraph();
         restartSimIfEnabled();
         draw();
     });
