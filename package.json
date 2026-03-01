@@ -466,11 +466,6 @@
       ],
       "view/title": [
         {
-          "command": "CMakeGraph.openGraphInEditor",
-          "when": "view == CMakeGraphOutline",
-          "group": "navigation@0"
-        },
-        {
           "command": "CMakeGraph.selectBuildDir",
           "when": "view == CMakeGraphOutline",
           "group": "navigation@1"
@@ -588,6 +583,11 @@
       ],
       "view/item/context": [
         {
+          "command": "CMakeGraph.openGraphInEditor",
+          "when": "view == CMakeGraphOutline && viewItem == outlineProject",
+          "group": "inline@1"
+        },
+        {
           "command": "CMakeGraph.buildTarget",
           "when": "view == CMakeGraphOutline && viewItem =~ /^outlineTarget_/",
           "group": "inline@1"
@@ -599,7 +599,7 @@
         },
         {
           "command": "CMakeGraph.openTargetGraphInEditor",
-          "when": "view == CMakeGraphOutline && viewItem =~ /^outlineTarget_/",
+          "when": "view == CMakeGraphOutline && viewItem =~ /^outlineTarget_(?!UTILITY)/",
           "group": "inline@3"
         },
         {

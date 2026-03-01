@@ -254,6 +254,10 @@ body {
     font-size: 10px;
 }
 
+#footer .footer-right {
+    margin-left: auto;
+}
+
 #empty-message {
     display: flex;
     justify-content: center;

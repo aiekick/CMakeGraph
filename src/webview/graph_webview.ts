@@ -49,6 +49,7 @@ interface LayoutNode {
     vx: number;  // velocity for force simulation
     vy: number;
     mass: number; // mass for force simulation
+    pinned: boolean; // if true, simulation forces are ignored (can still be dragged)
 }
 
 // ------------------------------------------------------------
@@ -1133,8 +1134,8 @@ function m_applyForces(): void {
         if (isNodeFiltered(m_layout_nodes[i].node)) { continue; }
         // Don't move the node being dragged
         if (m_is_dragging_node && m_drag_node === m_layout_nodes[i]) { continue; }
-        // Pin the focused root node in place (anchor for the subgraph)
-        if (m_focused_node_id && m_layout_nodes[i].node.id === m_focused_node_id) { continue; }
+        // Don't move pinned nodes (simulation forces ignored)
+        if (m_layout_nodes[i].pinned) { continue; }
 
         const ln = m_layout_nodes[i];
         const m = ln.mass || 1;
@@ -1291,7 +1292,7 @@ function initLayoutNodes(aNodes: GraphNode[]): void {
         const w = widths[i];
         const existing = existing_positions.get(n.id);
         if (existing) {
-            m_layout_nodes.push({ node: n, x: existing.x, y: existing.y, w, vx: existing.vx, vy: existing.vy, mass: 1 });
+            m_layout_nodes.push({ node: n, x: existing.x, y: existing.y, w, vx: existing.vx, vy: existing.vy, mass: 1, pinned: false });
         } else {
             const angle = (2 * Math.PI * i) / aNodes.length;
             m_layout_nodes.push({
@@ -1302,6 +1303,7 @@ function initLayoutNodes(aNodes: GraphNode[]): void {
                 vx: 0,
                 vy: 0,
                 mass: 1,
+                pinned: false,
             });
         }
     }
@@ -1540,7 +1542,17 @@ function updateFooter(): void {
     footer.innerHTML = footer.innerHTML +
         `<span><span class="info-type-swatch" style="background:${n.color}"></span><span class="info-value">${escapeHtml(n.label)}</span></span>` +
         `<span><span class="info-label">Type:</span> <span class="info-value">${escapeHtml(n.type)}</span></span>` +
-        `<span><span class="info-label">Path:</span> <span class="info-value" title="${escapeHtml(n.sourcePath)}">${escapeHtml(n.sourcePath)}</span></span>`;
+        `<span><span class="info-label">Path:</span> <span class="info-value" title="${escapeHtml(n.sourcePath)}">${escapeHtml(n.sourcePath)}</span></span>` +
+        `<span class="footer-right"><label class="settings-checkbox"><input type="checkbox" id="f-pin"${ln.pinned ? ' checked' : ''}> Pin</label></span>`;
+
+    footer.querySelector('#f-pin')!.addEventListener('change', () => {
+        const cb = footer.querySelector('#f-pin') as HTMLInputElement;
+        ln.pinned = cb.checked;
+        if (ln.pinned) {
+            ln.vx = 0;
+            ln.vy = 0;
+        }
+    });
 }
 
 function escapeHtml(aS: string): string {
@@ -1626,8 +1638,34 @@ function focusOnNode(aNodeId: string): void {
     m_focus_depth = m_focus_max_depth; // default to max
     rebuildFocusVisibleIds();
 
-    // Shift world origin to the focused node so gravity centers around it.
-    shiftOriginToNode(aNodeId);
+    // Pin the root node and place it at (0,0).
+    // Arrange visible sub-nodes in a circle around the root.
+    const root_ln = m_layout_nodes.find(ln => ln.node.id === aNodeId);
+    if (root_ln) {
+        root_ln.pinned = true;
+        root_ln.x = 0;
+        root_ln.y = 0;
+        root_ln.vx = 0;
+        root_ln.vy = 0;
+    }
+
+    const visible_ids = m_focus_visible_ids ?? new Set<string>();
+    const sub_nodes = m_layout_nodes.filter(ln => ln.node.id !== aNodeId && visible_ids.has(ln.node.id));
+    const radius = Math.max(150, sub_nodes.length * 25);
+    for (let i = 0; i < sub_nodes.length; i++) {
+        const angle = (2 * Math.PI * i) / sub_nodes.length;
+        sub_nodes[i].x = Math.cos(angle) * radius;
+        sub_nodes[i].y = Math.sin(angle) * radius;
+        sub_nodes[i].vx = 0;
+        sub_nodes[i].vy = 0;
+    }
+
+    // Center camera on origin
+    if (m_canvas) {
+        m_cam_x = m_canvas.clientWidth / 2;
+        m_cam_y = m_canvas.clientHeight / 2;
+        m_zoom = 1;
+    }
 
     // Check if this node is already at the end of the history
     if (m_focus_history.length === 0 || m_focus_history[m_focus_history.length - 1].nodeId !== aNodeId) {
@@ -1643,6 +1681,11 @@ function focusOnNode(aNodeId: string): void {
 }
 
 function exitFocusView(): void {
+    // Unpin the focused root node
+    if (m_focused_node_id) {
+        const root_ln = m_layout_nodes.find(ln => ln.node.id === m_focused_node_id);
+        if (root_ln) { root_ln.pinned = false; }
+    }
     m_focused_node_id = null;
     m_focus_history = [];
     m_focus_visible_ids = null;
