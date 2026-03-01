@@ -2,8 +2,8 @@
 export namespace WorkspaceConfig {
     export namespace Graph {
         export enum EdgeDirection {
-            USED_BY_TARGETS = 'inverse',
-            TARGETS_USED_BY = 'dependency',
+            USED_BY = 'used-by',
+            IS_USING = 'is-using',
         }
         export enum EdgeStyle {
             TAPERED = 'tapered',

@@ -1,9 +1,16 @@
-// Edge direction enum — duplicated here to keep the webview self-contained
+// Edge direction / Edge style enums — duplicated here to keep the webview self-contained
 // (no imports, so tsc CommonJS output works in the browser context).
 // Must stay in sync with WorkspaceConfig.Graph.EdgeDirection in config/workspace/types.ts
-const enum GraphEdgeDirection {
-    USED_BY_TARGETS = 'inverse',
-    TARGETS_USED_BY = 'dependency',
+
+const enum EdgeDirection {
+    USED_BY = 'used-by',
+    IS_USING = 'is-using',
+}
+
+const enum EdgeStyle {
+    TAPERED = 'tapered',
+    CHEVRONS = 'chevrons',
+    LINE = 'line',
 }
 
 // ------------------------------------------------------------
@@ -15,7 +22,7 @@ declare function acquireVsCodeApi(): {
     setState(state: unknown): void;
 };
 
-const vscode = acquireVsCodeApi();
+const m_vscode = acquireVsCodeApi();
 
 // ------------------------------------------------------------
 // Types
@@ -41,39 +48,40 @@ interface LayoutNode {
     w: number;   // node width (computed from label)
     vx: number;  // velocity for force simulation
     vy: number;
+    mass: number; // mass for force simulation
 }
 
 // ------------------------------------------------------------
 // State
 // ------------------------------------------------------------
-let all_nodes: GraphNode[] = [];
-let all_edges: GraphEdge[] = [];
-let layout_nodes: LayoutNode[] = [];
-let active_filters = new Set<string>();
-let selected_node_id: string | null = null;
-let edge_style: 'tapered' | 'chevrons' | 'line' = 'tapered';
-let edge_direction: GraphEdgeDirection = GraphEdgeDirection.TARGETS_USED_BY; // default to "targets used by" which is more intuitive for most users
-let sim_enabled = true;       // user toggle: allows/prevents sim from running
-let auto_pause_during_drag = false;
-let search_filter = '';
-let search_mode: 'name' | 'path' = 'name';
-let search_filter_mode: 'dim' | 'hide' = 'hide'; // dim = lower opacity, hide = remove from graph
-let minimap_enabled = true;
-let settings_collapse_state: Record<string, boolean> = { edges: false, colors: true, simulation: true, display: false, controls: false };
-let settings_panel_visible = false;
-let total_sim_energy = 0;
+let m_all_nodes: GraphNode[] = [];
+let m_all_edges: GraphEdge[] = [];
+let m_layout_nodes: LayoutNode[] = [];
+let m_active_filters = new Set<string>();
+let m_selected_node_id: string | null = null;
+let m_edge_style: EdgeStyle = EdgeStyle.TAPERED;
+let m_edge_direction: EdgeDirection = EdgeDirection.USED_BY; // default to "targets used by" which is more intuitive for most users
+let m_sim_enabled = true;       // user toggle: allows/prevents sim from running
+let m_auto_pause_during_drag = false;
+let m_search_filter = '';
+let m_search_mode: 'name' | 'path' = 'name';
+let m_search_filter_mode: 'dim' | 'hide' = 'hide'; // dim = lower opacity, hide = remove from graph
+let m_minimap_enabled = true;
+let m_settings_collapse_state: Record<string, boolean> = { edges: false, colors: true, simulation: true, display: false, controls: false };
+let m_settings_panel_visible = false;
+let m_total_sim_energy = 0;
 
 // Default values received from the provider (workspace config defaults).
 // Used by reset buttons to restore a widget to its default value.
-let provider_defaults: Record<string, any> = {};
+let m_provider_defaults: Record<string, any> = {};
 
 // Focused view state: when non-null, only show the recursively connected subgraph
-let focused_node_id: string | null = null;
-let focus_history: { nodeId: string; label: string }[] = [];
-let focus_visible_ids: Set<string> | null = null; // precomputed set of visible node ids in focus mode
-let focus_depth = 0;       // current depth limit for focused subgraph
-let focus_max_depth = 0;   // deepest level reachable from focused node
-let focus_node_depths: Map<string, number> | null = null; // nodeId → BFS depth from focused node
+let m_focused_node_id: string | null = null;
+let m_focus_history: { nodeId: string; label: string }[] = [];
+let m_focus_visible_ids: Set<string> | null = null; // precomputed set of visible node ids in focus mode
+let m_focus_depth = 0;       // current depth limit for focused subgraph
+let m_focus_max_depth = 0;   // deepest level reachable from focused node
+let m_focus_node_depths: Map<string, number> | null = null; // nodeId → BFS depth from focused node
 
 const TARGET_TYPES = [
     'EXECUTABLE', 'STATIC_LIBRARY', 'SHARED_LIBRARY',
@@ -87,27 +95,27 @@ const NODE_PAD_X = 10;
 const NODE_MIN_W = 60;
 
 // Canvas / camera state
-let canvas: HTMLCanvasElement | null = null;
-let ctx: CanvasRenderingContext2D | null = null;
-let cam_x = 0;
-let cam_y = 0;
-let zoom = 1;
+let m_canvas: HTMLCanvasElement | null = null;
+let m_context: CanvasRenderingContext2D | null = null;
+let m_cam_x = 0;
+let m_cam_y = 0;
+let m_zoom = 1;
 const ZOOM_MIN = 0.05;
 const ZOOM_MAX = 10;
 const GRID_SIZE = 40;
 
 // Interaction state
-let is_panning = false;
-let is_dragging_node = false;
-let was_panning = false;
-let drag_node: LayoutNode | null = null;
-let pan_start_x = 0;
-let pan_start_y = 0;
-let cam_start_x = 0;
-let cam_start_y = 0;
-let drag_offset_x = 0;
-let drag_offset_y = 0;
-let first_layout = true;
+let m_is_panning = false;
+let m_is_dragging_node = false;
+let m_was_panning = false;
+let m_drag_node: LayoutNode | null = null;
+let m_pan_start_x = 0;
+let m_pan_start_y = 0;
+let m_cam_start_x = 0;
+let m_cam_start_y = 0;
+let m_drag_offset_x = 0;
+let m_drag_offset_y = 0;
+let m_first_layout = true;
 
 // ------------------------------------------------------------
 // Force simulation parameters
@@ -145,7 +153,7 @@ function clampSimVar(aKey: keyof SimVars, aValue: number): number {
     return Math.max(lo, Math.min(hi, aValue));
 }
 
-const sim_vars: SimVars = {
+const m_sim_vars: SimVars = {
     repulsion: 10000,
     attraction: 0.1,
     gravity: 0.001,
@@ -157,8 +165,8 @@ const sim_vars: SimVars = {
     taperedWidth: 1.0,
 };
 
-let sim_running = false; // whether the simulation loop is currently running (can be paused by user)
-let sim_anim_frame: number | null = null; // current animation frame id for simulation loop, used to cancel when needed
+let m_sim_running = false; // whether the simulation loop is currently running (can be paused by user)
+let m_sim_anim_frame: number | null = null; // current animation frame id for simulation loop, used to cancel when needed
 
 // ------------------------------------------------------------
 // State persistence (camera only, survives webview refresh)
@@ -171,15 +179,15 @@ interface PersistedState {
 }
 
 function saveState(): void {
-    vscode.setState({ camX: cam_x, camY: cam_y, zoom } as PersistedState);
+    m_vscode.setState({ camX: m_cam_x, camY: m_cam_y, zoom: m_zoom } as PersistedState);
 }
 
 function restoreState(): boolean {
-    const s = vscode.getState() as PersistedState | undefined;
+    const s = m_vscode.getState() as PersistedState | undefined;
     if (!s || s.camX === undefined) { return false; }
-    cam_x = s.camX;
-    cam_y = s.camY!;
-    zoom = s.zoom!;
+    m_cam_x = s.camX;
+    m_cam_y = s.camY!;
+    m_zoom = s.zoom!;
     return true;
 }
 
@@ -187,13 +195,13 @@ function restoreState(): boolean {
 // Search filter helpers
 // ------------------------------------------------------------
 function nodeMatchesSearch(aNode: GraphNode): boolean {
-    if (!search_filter) { return true; }
-    const query = search_filter.toLowerCase();
-    const target = search_mode === 'name' ? aNode.label : aNode.sourcePath;
+    if (!m_search_filter) { return true; }
+    const query = m_search_filter.toLowerCase();
+    const target = m_search_mode === 'name' ? aNode.label : aNode.sourcePath;
     // Support regex for power users: if the query is a valid regex, use it
     try {
-        if (search_filter.includes('*') || search_filter.includes('(') || search_filter.includes('[')) {
-            return new RegExp(search_filter, 'i').test(target);
+        if (m_search_filter.includes('*') || m_search_filter.includes('(') || m_search_filter.includes('[')) {
+            return new RegExp(m_search_filter, 'i').test(target);
         }
     } catch { /* not a valid regex, fallback to simple match */ }
     return target.toLowerCase().includes(query);
@@ -206,11 +214,11 @@ function nodeMatchesSearch(aNode: GraphNode): boolean {
  */
 function isNodeFiltered(aNode: GraphNode): boolean {
     // Type filter from header checkboxes
-    if (active_filters.has(aNode.type)) { return true; }
+    if (m_active_filters.has(aNode.type)) { return true; }
     // In "hide" mode, search and focus act as real filters
-    if (search_filter_mode === 'hide') {
-        if (search_filter && !nodeMatchesSearch(aNode)) { return true; }
-        if (focus_visible_ids && !focus_visible_ids.has(aNode.id)) { return true; }
+    if (m_search_filter_mode === 'hide') {
+        if (m_search_filter && !nodeMatchesSearch(aNode)) { return true; }
+        if (m_focus_visible_ids && !m_focus_visible_ids.has(aNode.id)) { return true; }
     }
     return false;
 }
@@ -235,31 +243,31 @@ function setupCanvas(): void {
     container.style.display = 'block';
     document.getElementById('empty-message')!.style.display = 'none';
 
-    if (!canvas) {
-        canvas = document.createElement('canvas');
-        canvas.style.display = 'block';
-        canvas.style.width = '100%';
-        canvas.style.height = '100%';
+    if (!m_canvas) {
+        m_canvas = document.createElement('canvas');
+        m_canvas.style.display = 'block';
+        m_canvas.style.width = '100%';
+        m_canvas.style.height = '100%';
         container.innerHTML = '';
-        container.appendChild(canvas);
-        ctx = canvas.getContext('2d')!;
-        attachCanvasEvents(canvas);
+        container.appendChild(m_canvas);
+        m_context = m_canvas.getContext('2d')!;
+        attachCanvasEvents(m_canvas);
     }
 
     resizeCanvas();
 }
 
 function resizeCanvas(): void {
-    if (!canvas) { return; }
-    const container = canvas.parentElement!;
+    if (!m_canvas) { return; }
+    const container = m_canvas.parentElement!;
     const rect = container.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    canvas.style.width = `${rect.width}px`;
-    canvas.style.height = `${rect.height}px`;
-    if (ctx) {
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    m_canvas.width = rect.width * dpr;
+    m_canvas.height = rect.height * dpr;
+    m_canvas.style.width = `${rect.width}px`;
+    m_canvas.style.height = `${rect.height}px`;
+    if (m_context) {
+        m_context.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
     draw();
 }
@@ -268,48 +276,48 @@ function resizeCanvas(): void {
 // Drawing
 // ------------------------------------------------------------
 function draw(): void {
-    if (!canvas || !ctx) { return; }
-    const w = canvas.clientWidth;
-    const h = canvas.clientHeight;
+    if (!m_canvas || !m_context) { return; }
+    const w = m_canvas.clientWidth;
+    const h = m_canvas.clientHeight;
 
-    ctx.clearRect(0, 0, w, h);
+    m_context.clearRect(0, 0, w, h);
 
     const bg = getCssVar('--vscode-editor-background') || '#1e1e1e';
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, w, h);
+    m_context.fillStyle = bg;
+    m_context.fillRect(0, 0, w, h);
 
     drawGrid(w, h);
     drawEdges(w, h);
     drawNodes(w, h);
-    if (minimap_enabled) { drawMinimap(w, h); }
+    if (m_minimap_enabled) { drawMinimap(w, h); }
 }
 
 function worldToScreen(aWx: number, aWy: number): [number, number] {
-    return [cam_x + aWx * zoom, cam_y + aWy * zoom];
+    return [m_cam_x + aWx * m_zoom, m_cam_y + aWy * m_zoom];
 }
 
 // ------------------------------------------------------------
 // Edge drawing (supports tapered, chevrons, or plain line)
 // ------------------------------------------------------------
 function drawEdges(aW: number, aH: number): void {
-    if (!ctx || all_edges.length === 0) { return; }
+    if (!m_context || m_all_edges.length === 0) { return; }
 
     const node_map = new Map<string, LayoutNode>();
-    for (const ln of layout_nodes) {
+    for (const ln of m_layout_nodes) {
         if (!isNodeFiltered(ln.node)) {
             node_map.set(ln.node.id, ln);
         }
     }
 
-    const has_search = search_filter.length > 0;
+    const has_search = m_search_filter.length > 0;
 
     // Draw normal edges, then highlighted on top
-    for (const edge of all_edges) {
+    for (const edge of m_all_edges) {
         const from_ln = node_map.get(edge.from);
         const to_ln = node_map.get(edge.to);
         if (!from_ln || !to_ln) { continue; }
 
-        const is_highlighted = selected_node_id && (edge.from === selected_node_id || edge.to === selected_node_id);
+        const is_highlighted = m_selected_node_id && (edge.from === m_selected_node_id || edge.to === m_selected_node_id);
         if (is_highlighted) { continue; }
 
         const [x1, y1] = worldToScreen(from_ln.x, from_ln.y);
@@ -324,15 +332,15 @@ function drawEdges(aW: number, aH: number): void {
         const from_in_focus = isNodeVisibleInFocus(from_ln.node.id);
         const to_in_focus = isNodeVisibleInFocus(to_ln.node.id);
         const search_dim = has_search && !from_matches_search && !to_matches_search;
-        const focus_dim = focused_node_id !== null && !from_in_focus && !to_in_focus;
+        const focus_dim = m_focused_node_id !== null && !from_in_focus && !to_in_focus;
         const edge_alpha = (search_dim || focus_dim) ? 0.04 : 0.15;
-        drawEdgeStyled(ctx, x1, y1, x2, y2, `rgba(255, 255, 255, ${edge_alpha})`);
+        drawEdgeStyled(m_context, x1, y1, x2, y2, `rgba(255, 255, 255, ${edge_alpha})`);
     }
 
     // Highlighted edges with gradient: node color -> white along the arrow
-    if (selected_node_id) {
-        for (const edge of all_edges) {
-            const is_highlighted = edge.from === selected_node_id || edge.to === selected_node_id;
+    if (m_selected_node_id) {
+        for (const edge of m_all_edges) {
+            const is_highlighted = edge.from === m_selected_node_id || edge.to === m_selected_node_id;
             if (!is_highlighted) { continue; }
             const from_ln = node_map.get(edge.from);
             const to_ln = node_map.get(edge.to);
@@ -344,17 +352,17 @@ function drawEdges(aW: number, aH: number): void {
             // The wide end (base) is at sx1,sy1 and the tip at sx2,sy2
             let sx1 = x1, sy1 = y1, sx2 = x2, sy2 = y2;
             let base_node = from_ln;
-            if (edge_direction === GraphEdgeDirection.TARGETS_USED_BY) {
+            if (m_edge_direction === EdgeDirection.USED_BY) {
                 sx1 = x2; sy1 = y2; sx2 = x1; sy2 = y1;
                 base_node = to_ln;
             }
 
             // Gradient from the base node's color (wide end) -> white (tip)
-            const grad = ctx.createLinearGradient(sx1, sy1, sx2, sy2);
+            const grad = m_context.createLinearGradient(sx1, sy1, sx2, sy2);
             grad.addColorStop(0, base_node.node.color);
             grad.addColorStop(1, '#ffffff');
 
-            drawEdgeStyled(ctx, x1, y1, x2, y2, grad, 0.6);
+            drawEdgeStyled(m_context, x1, y1, x2, y2, grad, 0.6);
         }
     }
 }
@@ -367,13 +375,13 @@ function drawEdgeStyled(
 ): void {
     // Swap direction if inverted
     let sx1 = aX1, sy1 = aY1, sx2 = aX2, sy2 = aY2;
-    if (edge_direction === GraphEdgeDirection.TARGETS_USED_BY) {
+    if (m_edge_direction === EdgeDirection.USED_BY) {
         sx1 = aX2; sy1 = aY2; sx2 = aX1; sy2 = aY1;
     }
-    switch (edge_style) {
-        case 'tapered': drawTaperedEdge(aCanvas, sx1, sy1, sx2, sy2, aColor, aAlpha); break;
-        case 'chevrons': drawChevronEdge(aCanvas, sx1, sy1, sx2, sy2, aColor, aAlpha); break;
-        case 'line': drawLineEdge(aCanvas, sx1, sy1, sx2, sy2, aColor, aAlpha); break;
+    switch (m_edge_style) {
+        case EdgeStyle.TAPERED: drawTaperedEdge(aCanvas, sx1, sy1, sx2, sy2, aColor, aAlpha); break;
+        case EdgeStyle.CHEVRONS: drawChevronEdge(aCanvas, sx1, sy1, sx2, sy2, aColor, aAlpha); break;
+        case EdgeStyle.LINE: drawLineEdge(aCanvas, sx1, sy1, sx2, sy2, aColor, aAlpha); break;
     }
 }
 
@@ -391,8 +399,8 @@ function drawTaperedEdge(
     const px = -dy / len;
     const py = dx / len;
 
-    const wide_half = Math.max(1.5, 3 * zoom * sim_vars.taperedWidth);
-    const narrow_half = Math.max(0.3, 0.5 * zoom * sim_vars.taperedWidth);
+    const wide_half = Math.max(1.5, 3 * m_zoom * m_sim_vars.taperedWidth);
+    const narrow_half = Math.max(0.3, 0.5 * m_zoom * m_sim_vars.taperedWidth);
 
     aCanvas.globalAlpha = aAlpha;
     aCanvas.fillStyle = aColor;
@@ -419,7 +427,7 @@ function drawChevronEdge(
 
     aCanvas.globalAlpha = aAlpha;
     aCanvas.strokeStyle = aColor;
-    aCanvas.lineWidth = Math.max(1, 1.5 * zoom);
+    aCanvas.lineWidth = Math.max(1, 1.5 * m_zoom);
     aCanvas.beginPath();
     aCanvas.moveTo(aX1, aY1);
     aCanvas.lineTo(aX2, aY2);
@@ -427,12 +435,12 @@ function drawChevronEdge(
 
     const ux = dx / len;
     const uy = dy / len;
-    const chev_size = Math.max(3, 5 * zoom);
-    const gap = Math.max(2, 4 * zoom);
+    const chev_size = Math.max(3, 5 * m_zoom);
+    const gap = Math.max(2, 4 * m_zoom);
     const mx = (aX1 + aX2) / 2;
     const my = (aY1 + aY2) / 2;
 
-    aCanvas.lineWidth = Math.max(1, 1.2 * zoom);
+    aCanvas.lineWidth = Math.max(1, 1.2 * m_zoom);
     for (let i = -1; i <= 1; i++) {
         const cx = mx + ux * i * gap;
         const cy = my + uy * i * gap;
@@ -453,7 +461,7 @@ function drawLineEdge(
 ): void {
     aCanvas.globalAlpha = aAlpha;
     aCanvas.strokeStyle = aColor;
-    aCanvas.lineWidth = Math.max(1, 1.5 * zoom);
+    aCanvas.lineWidth = Math.max(1, 1.5 * m_zoom);
     aCanvas.beginPath();
     aCanvas.moveTo(aX1, aY1);
     aCanvas.lineTo(aX2, aY2);
@@ -465,19 +473,19 @@ function drawLineEdge(
 // Node drawing (all rectangular)
 // ------------------------------------------------------------
 function drawNodes(aW: number, aH: number): void {
-    if (!ctx || layout_nodes.length === 0) { return; }
+    if (!m_context || m_layout_nodes.length === 0) { return; }
 
     const min_font_size = 3;
-    const font_size = Math.max(min_font_size, 11 * zoom);
+    const font_size = Math.max(min_font_size, 11 * m_zoom);
 
-    const has_search = search_filter.length > 0;
+    const has_search = m_search_filter.length > 0;
 
-    for (const ln of layout_nodes) {
+    for (const ln of m_layout_nodes) {
         if (isNodeFiltered(ln.node)) { continue; }
 
         const [sx, sy] = worldToScreen(ln.x, ln.y);
-        const sw = ln.w * zoom;
-        const sh = NODE_H * zoom;
+        const sw = ln.w * m_zoom;
+        const sh = NODE_H * m_zoom;
 
         // Cull off-screen
         if (((sx + sw / 2) < 0) ||
@@ -495,47 +503,47 @@ function drawNodes(aW: number, aH: number): void {
         const color = ln.node.color;
         const border_color = darken(color);
 
-        const zoom2 = 2 * zoom;
-        const zoom3 = 3 * zoom;
-        const zoom4 = 4 * zoom;
-        const zoom8 = 8 * zoom;
+        const zoom2 = 2 * m_zoom;
+        const zoom3 = 3 * m_zoom;
+        const zoom4 = 4 * m_zoom;
+        const zoom8 = 8 * m_zoom;
 
-        ctx.globalAlpha = node_alpha;
-        ctx.fillStyle = color;
-        ctx.strokeStyle = border_color;
-        ctx.lineWidth = Math.max(1, zoom2);
+        m_context.globalAlpha = node_alpha;
+        m_context.fillStyle = color;
+        m_context.strokeStyle = border_color;
+        m_context.lineWidth = Math.max(1, zoom2);
         const r = Math.min(zoom4, sw * 0.08);
-        drawBox(ctx, sx, sy, sw, sh, r);
+        drawBox(m_context, sx, sy, sw, sh, r);
 
         // Focused root node halo (golden glow)
-        if (focused_node_id && ln.node.id === focused_node_id) {
-            ctx.save();
-            ctx.shadowColor = '#FFD700';
-            ctx.shadowBlur = Math.max(12, 20 * zoom);
-            ctx.strokeStyle = '#FFD700';
-            ctx.lineWidth = Math.max(2, zoom3);
-            drawBox(ctx, sx, sy, sw + zoom8, sh + zoom8, r + zoom4, true);
-            ctx.restore();
-            ctx.globalAlpha = node_alpha;
+        if (m_focused_node_id && ln.node.id === m_focused_node_id) {
+            m_context.save();
+            m_context.shadowColor = '#FFD700';
+            m_context.shadowBlur = Math.max(12, 20 * m_zoom);
+            m_context.strokeStyle = '#FFD700';
+            m_context.lineWidth = Math.max(2, zoom3);
+            drawBox(m_context, sx, sy, sw + zoom8, sh + zoom8, r + zoom4, true);
+            m_context.restore();
+            m_context.globalAlpha = node_alpha;
         }
 
         // Selection border
-        if (ln.node.id === selected_node_id) {
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = Math.max(2, zoom3);
-            drawBox(ctx, sx, sy, sw + zoom4, sh + zoom4, r + zoom2, true);
+        if (ln.node.id === m_selected_node_id) {
+            m_context.strokeStyle = '#ffffff';
+            m_context.lineWidth = Math.max(2, zoom3);
+            drawBox(m_context, sx, sy, sw + zoom4, sh + zoom4, r + zoom2, true);
         }
 
-        if (font_size <= min_font_size) { ctx.globalAlpha = 1; continue; }
+        if (font_size <= min_font_size) { m_context.globalAlpha = 1; continue; }
 
         // Label with auto contrast
         const text_color = contrastTextColor(color);
-        ctx.fillStyle = text_color;
-        ctx.font = `bold ${font_size}px ${getCssVar('--vscode-font-family') || 'monospace'}`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(ln.node.label, sx, sy);
-        ctx.globalAlpha = 1;
+        m_context.fillStyle = text_color;
+        m_context.font = `bold ${font_size}px ${getCssVar('--vscode-font-family') || 'monospace'}`;
+        m_context.textAlign = 'center';
+        m_context.textBaseline = 'middle';
+        m_context.fillText(ln.node.label, sx, sy);
+        m_context.globalAlpha = 1;
     }
 }
 
@@ -561,47 +569,47 @@ function drawBox(aCanvas: CanvasRenderingContext2D, aCx: number, aCy: number, aW
 // Grid drawing
 // ------------------------------------------------------------
 function drawGrid(aW: number, aH: number): void {
-    if (!ctx) { return; }
+    if (!m_context) { return; }
 
     const grid_world = GRID_SIZE;
-    const grid_screen = grid_world * zoom;
+    const grid_screen = grid_world * m_zoom;
     if (grid_screen < 4) { return; }
 
-    const world_left = -cam_x / zoom;
-    const world_top = -cam_y / zoom;
-    const world_right = world_left + aW / zoom;
-    const world_bottom = world_top + aH / zoom;
+    const world_left = -m_cam_x / m_zoom;
+    const world_top = -m_cam_y / m_zoom;
+    const world_right = world_left + aW / m_zoom;
+    const world_bottom = world_top + aH / m_zoom;
 
     const start_x = Math.floor(world_left / grid_world) * grid_world;
     const start_y = Math.floor(world_top / grid_world) * grid_world;
 
     const alpha = Math.min(0.3, grid_screen / 100);
-    ctx.strokeStyle = `rgba(128, 128, 128, ${alpha})`;
-    ctx.lineWidth = 1;
+    m_context.strokeStyle = `rgba(128, 128, 128, ${alpha})`;
+    m_context.lineWidth = 1;
 
-    ctx.beginPath();
+    m_context.beginPath();
     for (let wx = start_x; wx <= world_right; wx += grid_world) {
-        const sx = cam_x + wx * zoom;
-        ctx.moveTo(sx, 0);
-        ctx.lineTo(sx, aH);
+        const sx = m_cam_x + wx * m_zoom;
+        m_context.moveTo(sx, 0);
+        m_context.lineTo(sx, aH);
     }
     for (let wy = start_y; wy <= world_bottom; wy += grid_world) {
-        const sy = cam_y + wy * zoom;
-        ctx.moveTo(0, sy);
-        ctx.lineTo(aW, sy);
+        const sy = m_cam_y + wy * m_zoom;
+        m_context.moveTo(0, sy);
+        m_context.lineTo(aW, sy);
     }
-    ctx.stroke();
+    m_context.stroke();
 
     // Origin cross
-    const ox = cam_x;
-    const oy = cam_y;
-    ctx.strokeStyle = 'rgba(128, 128, 128, 0.5)';
-    ctx.lineWidth = 2;
+    const ox = m_cam_x;
+    const oy = m_cam_y;
+    m_context.strokeStyle = 'rgba(128, 128, 128, 0.5)';
+    m_context.lineWidth = 2;
     if (ox >= 0 && ox <= aW) {
-        ctx.beginPath(); ctx.moveTo(ox, 0); ctx.lineTo(ox, aH); ctx.stroke();
+        m_context.beginPath(); m_context.moveTo(ox, 0); m_context.lineTo(ox, aH); m_context.stroke();
     }
     if (oy >= 0 && oy <= aH) {
-        ctx.beginPath(); ctx.moveTo(0, oy); ctx.lineTo(aW, oy); ctx.stroke();
+        m_context.beginPath(); m_context.moveTo(0, oy); m_context.lineTo(aW, oy); m_context.stroke();
     }
 }
 
@@ -622,12 +630,12 @@ let minimap_transform: {
 let is_dragging_minimap = false;
 
 function drawMinimap(aCanvasW: number, aCanvasH: number): void {
-    if (!ctx || layout_nodes.length === 0) { return; }
+    if (!m_context || m_layout_nodes.length === 0) { return; }
 
     // Compute bounding box of all visible nodes
     let min_x = Infinity, min_y = Infinity, max_x = -Infinity, max_y = -Infinity;
     let count = 0;
-    for (const ln of layout_nodes) {
+    for (const ln of m_layout_nodes) {
         if (isNodeFiltered(ln.node)) { continue; }
         min_x = Math.min(min_x, ln.x - ln.w / 2);
         max_x = Math.max(max_x, ln.x + ln.w / 2);
@@ -660,23 +668,23 @@ function drawMinimap(aCanvasW: number, aCanvasH: number): void {
     minimap_transform = { mx: mmx, my: mmy, scale, wMinX: w_min_x, wMinY: w_min_y, canvasW: aCanvasW, canvasH: aCanvasH };
 
     // Background
-    ctx.fillStyle = 'rgba(30, 30, 30, 0.85)';
-    ctx.fillRect(mmx, mmy, MINIMAP_W, MINIMAP_H);
-    ctx.strokeStyle = 'rgba(128, 128, 128, 0.5)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(mmx, mmy, MINIMAP_W, MINIMAP_H);
+    m_context.fillStyle = 'rgba(30, 30, 30, 0.85)';
+    m_context.fillRect(mmx, mmy, MINIMAP_W, MINIMAP_H);
+    m_context.strokeStyle = 'rgba(128, 128, 128, 0.5)';
+    m_context.lineWidth = 1;
+    m_context.strokeRect(mmx, mmy, MINIMAP_W, MINIMAP_H);
 
     // Draw edges as thin lines
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-    ctx.lineWidth = 0.5;
+    m_context.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    m_context.lineWidth = 0.5;
     const node_map = new Map<string, LayoutNode>();
-    for (const ln of layout_nodes) {
+    for (const ln of m_layout_nodes) {
         if (!isNodeFiltered(ln.node)) {
             node_map.set(ln.node.id, ln);
         }
     }
-    const has_search = search_filter.length > 0;
-    for (const edge of all_edges) {
+    const has_search = m_search_filter.length > 0;
+    for (const edge of m_all_edges) {
         const from_ln = node_map.get(edge.from);
         const to_ln = node_map.get(edge.to);
         if (!from_ln || !to_ln) { continue; }
@@ -684,14 +692,14 @@ function drawMinimap(aCanvasW: number, aCanvasH: number): void {
         const ey1 = mmy + (from_ln.y - w_min_y) * scale;
         const ex2 = mmx + (to_ln.x - w_min_x) * scale;
         const ey2 = mmy + (to_ln.y - w_min_y) * scale;
-        ctx.beginPath();
-        ctx.moveTo(ex1, ey1);
-        ctx.lineTo(ex2, ey2);
-        ctx.stroke();
+        m_context.beginPath();
+        m_context.moveTo(ex1, ey1);
+        m_context.lineTo(ex2, ey2);
+        m_context.stroke();
     }
 
     // Draw nodes as small dots (reflecting search/focus dim)
-    for (const ln of layout_nodes) {
+    for (const ln of m_layout_nodes) {
         if (isNodeFiltered(ln.node)) { continue; }
         // In "dim" mode, reduce opacity for non-matching nodes
         const matches_search = !has_search || nodeMatchesSearch(ln.node);
@@ -700,52 +708,52 @@ function drawMinimap(aCanvasW: number, aCanvasH: number): void {
         const nx = mmx + (ln.x - w_min_x) * scale;
         const ny = mmy + (ln.y - w_min_y) * scale;
         const dot_size = Math.max(2, ln.w * scale * 0.3);
-        ctx.globalAlpha = is_dimmed ? 0.15 : 1;
-        ctx.fillStyle = ln.node.id === selected_node_id ? '#ffffff' : ln.node.color;
-        ctx.fillRect(nx - dot_size / 2, ny - dot_size / 2, dot_size, dot_size);
+        m_context.globalAlpha = is_dimmed ? 0.15 : 1;
+        m_context.fillStyle = ln.node.id === m_selected_node_id ? '#ffffff' : ln.node.color;
+        m_context.fillRect(nx - dot_size / 2, ny - dot_size / 2, dot_size, dot_size);
     }
-    ctx.globalAlpha = 1;
+    m_context.globalAlpha = 1;
 
     // Draw viewport rectangle
-    const view_world_left = -cam_x / zoom;
-    const view_world_top = -cam_y / zoom;
-    const view_world_right = view_world_left + aCanvasW / zoom;
-    const view_world_bottom = view_world_top + aCanvasH / zoom;
+    const view_world_left = -m_cam_x / m_zoom;
+    const view_world_top = -m_cam_y / m_zoom;
+    const view_world_right = view_world_left + aCanvasW / m_zoom;
+    const view_world_bottom = view_world_top + aCanvasH / m_zoom;
 
     const vx = mmx + (view_world_left - w_min_x) * scale;
     const vy = mmy + (view_world_top - w_min_y) * scale;
     const vw = (view_world_right - view_world_left) * scale;
     const vh = (view_world_bottom - view_world_top) * scale;
 
-    ctx.strokeStyle = 'rgba(255, 200, 50, 0.8)';
-    ctx.lineWidth = 1.5;
+    m_context.strokeStyle = 'rgba(255, 200, 50, 0.8)';
+    m_context.lineWidth = 1.5;
     // Clip the viewport rectangle to minimap bounds
     const clip_x = Math.max(mmx, vx);
     const clip_y = Math.max(mmy, vy);
     const clip_r = Math.min(mmx + MINIMAP_W, vx + vw);
     const clip_b = Math.min(mmy + MINIMAP_H, vy + vh);
     if (clip_r > clip_x && clip_b > clip_y) {
-        ctx.strokeRect(clip_x, clip_y, clip_r - clip_x, clip_b - clip_y);
+        m_context.strokeRect(clip_x, clip_y, clip_r - clip_x, clip_b - clip_y);
     }
 }
 
 /** Check if a screen point falls within the minimap bounds */
 function isInMinimap(aSx: number, aSy: number): boolean {
-    if (!minimap_enabled || !minimap_transform) { return false; }
+    if (!m_minimap_enabled || !minimap_transform) { return false; }
     const { mx, my } = minimap_transform;
     return aSx >= mx && aSx <= mx + MINIMAP_W && aSy >= my && aSy <= my + MINIMAP_H;
 }
 
 /** Convert minimap screen coords to world coords, then center the camera there */
 function minimapPanTo(aSx: number, aSy: number): void {
-    if (!minimap_transform || !canvas) { return; }
+    if (!minimap_transform || !m_canvas) { return; }
     const { mx, my, scale, wMinX, wMinY } = minimap_transform;
     // Convert minimap position to world coords
     const world_x = (aSx - mx) / scale + wMinX;
     const world_y = (aSy - my) / scale + wMinY;
     // Center the camera on this world position
-    cam_x = canvas.clientWidth / 2 - world_x * zoom;
-    cam_y = canvas.clientHeight / 2 - world_y * zoom;
+    m_cam_x = m_canvas.clientWidth / 2 - world_x * m_zoom;
+    m_cam_y = m_canvas.clientHeight / 2 - world_y * m_zoom;
     saveState();
     draw();
 }
@@ -755,12 +763,12 @@ function minimapPanTo(aSx: number, aSy: number): void {
 // ------------------------------------------------------------
 
 function hitTestNode(aPosX: number, aPosY: number): LayoutNode | null {
-    for (let i = layout_nodes.length - 1; i >= 0; i--) {
-        const ln = layout_nodes[i];
+    for (let i = m_layout_nodes.length - 1; i >= 0; i--) {
+        const ln = m_layout_nodes[i];
         if (isNodeFiltered(ln.node)) { continue; }
         const [sx, sy] = worldToScreen(ln.x, ln.y);
-        const hw = (ln.w * zoom) / 2;
-        const hh = (NODE_H * zoom) / 2;
+        const hw = (ln.w * m_zoom) / 2;
+        const hh = (NODE_H * m_zoom) / 2;
         if (aPosX >= sx - hw && aPosX <= sx + hw && aPosY >= sy - hh && aPosY <= sy + hh) {
             return ln;
         }
@@ -791,27 +799,27 @@ function attachCanvasEvents(aCanvas: HTMLCanvasElement): void {
 
         const hit = hitTestNode(mx, my);
         if (hit) {
-            is_dragging_node = true;
-            drag_node = hit;
-            selected_node_id = hit.node.id;
+            m_is_dragging_node = true;
+            m_drag_node = hit;
+            m_selected_node_id = hit.node.id;
             updateFooter();
             const [sx, sy] = worldToScreen(hit.x, hit.y);
-            drag_offset_x = mx - sx;
-            drag_offset_y = my - sy;
+            m_drag_offset_x = mx - sx;
+            m_drag_offset_y = my - sy;
             aCanvas.style.cursor = 'move';
             // Auto-pause: pause sim while dragging
-            if (auto_pause_during_drag && sim_running) {
+            if (m_auto_pause_during_drag && m_sim_running) {
                 stopSimulation();
             }
             if (hit.node.type !== 'SYSTEM_LIBRARY') {
-                vscode.postMessage({ type: 'nodeClick', targetId: hit.node.id });
+                m_vscode.postMessage({ type: 'nodeClick', targetId: hit.node.id });
             }
         } else {
-            is_panning = true;
-            pan_start_x = e.clientX;
-            pan_start_y = e.clientY;
-            cam_start_x = cam_x;
-            cam_start_y = cam_y;
+            m_is_panning = true;
+            m_pan_start_x = e.clientX;
+            m_pan_start_y = e.clientY;
+            m_cam_start_x = m_cam_x;
+            m_cam_start_y = m_cam_y;
             aCanvas.style.cursor = 'grabbing';
         }
         draw();
@@ -825,17 +833,17 @@ function attachCanvasEvents(aCanvas: HTMLCanvasElement): void {
             minimapPanTo(mx, my);
             return;
         }
-        if (is_dragging_node && drag_node) {
+        if (m_is_dragging_node && m_drag_node) {
             const rect = aCanvas.getBoundingClientRect();
             const mx = e.clientX - rect.left;
             const my = e.clientY - rect.top;
-            drag_node.x = (mx - drag_offset_x - cam_x) / zoom;
-            drag_node.y = (my - drag_offset_y - cam_y) / zoom;
+            m_drag_node.x = (mx - m_drag_offset_x - m_cam_x) / m_zoom;
+            m_drag_node.y = (my - m_drag_offset_y - m_cam_y) / m_zoom;
             draw();
-        } else if (is_panning) {
-            was_panning = true;
-            cam_x = cam_start_x + (e.clientX - pan_start_x);
-            cam_y = cam_start_y + (e.clientY - pan_start_y);
+        } else if (m_is_panning) {
+            m_was_panning = true;
+            m_cam_x = m_cam_start_x + (e.clientX - m_pan_start_x);
+            m_cam_y = m_cam_start_y + (e.clientY - m_pan_start_y);
             draw();
         }
     });
@@ -847,22 +855,22 @@ function attachCanvasEvents(aCanvas: HTMLCanvasElement): void {
             aCanvas.style.cursor = 'grab';
             return;
         }
-        if (is_dragging_node) {
-            is_dragging_node = false;
-            drag_node = null;
+        if (m_is_dragging_node) {
+            m_is_dragging_node = false;
+            m_drag_node = null;
             aCanvas.style.cursor = 'grab';
             // Resume sim if enabled (auto-pause or normal mode)
-            if (sim_enabled) {
+            if (m_sim_enabled) {
                 startSimulation();
             }
-        } else if (!was_panning) {
-            selected_node_id = null;
+        } else if (!m_was_panning) {
+            m_selected_node_id = null;
             updateFooter();
             draw();
         }
-        if (is_panning) {
-            is_panning = false;
-            was_panning = false;
+        if (m_is_panning) {
+            m_is_panning = false;
+            m_was_panning = false;
             aCanvas.style.cursor = 'grab';
             saveState();
         }
@@ -876,10 +884,10 @@ function attachCanvasEvents(aCanvas: HTMLCanvasElement): void {
         if (isInMinimap(mx, my)) { return; }
         // Use selected_node_id from mousedown instead of re-hit-testing,
         // because the node may have moved slightly during the drag between clicks
-        if (selected_node_id) {
-            if (selected_node_id === focused_node_id) {
+        if (m_selected_node_id) {
+            if (m_selected_node_id === m_focused_node_id) {
                 // Already focused -- just re-center gravity origin on this node
-                shiftOriginToNode(selected_node_id);
+                shiftOriginToNode(m_selected_node_id);
                 restartSimIfEnabled();
                 draw();
                 return;
@@ -887,10 +895,10 @@ function attachCanvasEvents(aCanvas: HTMLCanvasElement): void {
             // Ctrl+double-click: open subgraph as fresh root (reset breadcrumb)
             if (e.ctrlKey || e.metaKey) {
                 exitFocusView();
-                focusOnNode(selected_node_id);
+                focusOnNode(m_selected_node_id);
             } else {
                 // Normal double-click: drill down (append to breadcrumb)
-                focusOnNode(selected_node_id);
+                focusOnNode(m_selected_node_id);
             }
         } else {
             // Double-click on background: fit graph to view
@@ -910,22 +918,22 @@ function attachCanvasEvents(aCanvas: HTMLCanvasElement): void {
             const world_x = (mx - minimap_transform.mx) / minimap_transform.scale + minimap_transform.wMinX;
             const world_y = (my - minimap_transform.my) / minimap_transform.scale + minimap_transform.wMinY;
             const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-            zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoom * factor));
-            cam_x = aCanvas.clientWidth / 2 - world_x * zoom;
-            cam_y = aCanvas.clientHeight / 2 - world_y * zoom;
+            m_zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, m_zoom * factor));
+            m_cam_x = aCanvas.clientWidth / 2 - world_x * m_zoom;
+            m_cam_y = aCanvas.clientHeight / 2 - world_y * m_zoom;
             saveState();
             draw();
             return;
         }
 
-        const wx_before = (mx - cam_x) / zoom;
-        const wy_before = (my - cam_y) / zoom;
+        const wx_before = (mx - m_cam_x) / m_zoom;
+        const wy_before = (my - m_cam_y) / m_zoom;
 
         const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-        zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoom * factor));
+        m_zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, m_zoom * factor));
 
-        cam_x = mx - wx_before * zoom;
-        cam_y = my - wy_before * zoom;
+        m_cam_x = mx - wx_before * m_zoom;
+        m_cam_y = my - wy_before * m_zoom;
 
         saveState();
         draw();
@@ -940,164 +948,237 @@ function attachCanvasEvents(aCanvas: HTMLCanvasElement): void {
 
 /** Restart simulation if it's enabled (convenience for visibility changes) */
 function restartSimIfEnabled(): void {
-    if (sim_enabled) {
+    if (m_sim_enabled) {
         stopSimulation();
         startSimulation();
     }
 }
 
 function startSimulation(): void {
-    if (sim_running || !sim_enabled) { return; }
-    sim_running = true;
-    sim_anim_frame = requestAnimationFrame(simulationStep);
+    if (m_sim_running || !m_sim_enabled) { return; }
+    m_sim_running = true;
+    m_sim_anim_frame = requestAnimationFrame(simulationStep);
 }
 
 function stopSimulation(): void {
-    sim_running = false;
-    if (sim_anim_frame !== null) {
-        cancelAnimationFrame(sim_anim_frame);
-        sim_anim_frame = null;
+    m_sim_running = false;
+    if (m_sim_anim_frame !== null) {
+        cancelAnimationFrame(m_sim_anim_frame);
+        m_sim_anim_frame = null;
+    }
+}
+
+let m_nodesCount: number;
+let m_forcesX: Float64Array;
+let m_forcesY: Float64Array;
+const m_node_index = new Map<string, number>();
+const m_adjacency = new Map<string, Set<string>>(); // node id -> set of adjacent node ids
+const m_degree = new Map<string, number>();// node id -> degree (number of connections)
+
+// Build adjacency set and degree count for connectivity-aware repulsion
+// This allows us to apply stronger repulsion between unconnected nodes, 
+// especially high-degree ones, to reduce clutter around hubs and improve overall layout clarity
+function m_computeAdjancency(): void {
+    m_node_index.clear();
+
+    // Build index
+    m_layout_nodes.forEach((ln, i) => m_node_index.set(ln.node.id, i));
+
+    m_nodesCount = m_layout_nodes.length;
+    m_forcesX = new Float64Array(m_nodesCount);
+    m_forcesY = new Float64Array(m_nodesCount);
+
+    const adjacency = new Map<string, Set<string>>(); // node id -> set of adjacent node ids
+    const degree = new Map<string, number>();// node id -> degree (number of connections)
+    for (const edge of m_all_edges) {
+        // Ensure both nodes are in the adjacency map
+        if (!adjacency.has(edge.from)) { adjacency.set(edge.from, new Set()); }
+        // Ensure both nodes are in the adjacency map
+        if (!adjacency.has(edge.to)) { adjacency.set(edge.to, new Set()); }
+        adjacency.get(edge.from)!.add(edge.to);
+        adjacency.get(edge.to)!.add(edge.from);
+    }
+    // Compute degree for each node
+    for (let i = 0; i < m_nodesCount; i++) {
+        degree.set(m_layout_nodes[i].node.id, adjacency.get(m_layout_nodes[i].node.id)?.size ?? 0);
+    }
+    // calcul of node mass based on degree (for inertia in the simulation)
+    for (let i = 0; i < m_nodesCount; i++) {
+        const id = m_layout_nodes[i].node.id;
+        const deg = adjacency.get(id)?.size ?? 0;
+        // Base mass of 1, plus 0.5 per connection, to give more inertia to highly connected nodes
+        m_layout_nodes[i].mass = 1 + deg * 0.5;
+    }
+}
+
+// Repulsion between all pairs (Coulomb) -- stronger for unconnected high-degree nodes
+function m_repulseNodes(): void {
+    for (let i = 0; i < m_nodesCount; i++) {
+        // Skip filtered nodes
+        if (isNodeFiltered(m_layout_nodes[i].node)) { continue; }
+        const id_i = m_layout_nodes[i].node.id;
+        const deg_i = m_degree.get(id_i) ?? 0;
+        const adj_i = m_adjacency.get(id_i);
+        for (let j = i + 1; j < m_nodesCount; j++) {
+            if (isNodeFiltered(m_layout_nodes[j].node)) { continue; }
+            const id_j = m_layout_nodes[j].node.id;
+            // Check if nodes are directly connected
+            const connected = adj_i !== undefined && adj_i.has(id_j);
+            let dx = m_layout_nodes[j].x - m_layout_nodes[i].x;
+            let dy = m_layout_nodes[j].y - m_layout_nodes[i].y;
+            const dist_sq = dx * dx + dy * dy;
+            let dist = Math.sqrt(dist_sq);
+            // Avoid division by zero
+            if (dist < 0.1) {
+                dx = (Math.random() - 0.5) * 2;
+                dy = (Math.random() - 0.5) * 2;
+                dist = 1;
+            }
+            // Standard repulsion
+            let force = m_sim_vars.repulsion / (dist * dist);
+            // Extra push when closer than minDistance
+            if (dist < m_sim_vars.minDistance) {
+                force *= (m_sim_vars.minDistance / dist);
+            }
+            // Boost repulsion for unconnected nodes based on their degree
+            // High-degree nodes push harder to reduce clutter around hubs
+            if (!connected) {
+                const deg_j = m_degree.get(id_j) ?? 0;
+                const deg_boost = 1 + 0.15 * (deg_i + deg_j);
+                force *= deg_boost;
+            }
+            const force_x = (dx / dist) * force;
+            const force_y = (dy / dist) * force;
+            m_forcesX[i] -= force_x;
+            m_forcesY[i] -= force_y;
+            m_forcesX[j] += force_x;
+            m_forcesY[j] += force_y;
+        }
+    }
+}
+
+// Attraction on edges (Hooke)
+function m_attractLinks(): void {
+    for (const edge of m_all_edges) {
+        const fi = m_node_index.get(edge.from);
+        const ti = m_node_index.get(edge.to);
+        if (fi === undefined || ti === undefined) { continue; }
+        if (isNodeFiltered(m_layout_nodes[fi].node)) { continue; }
+        if (isNodeFiltered(m_layout_nodes[ti].node)) { continue; }
+        const dx = m_layout_nodes[ti].x - m_layout_nodes[fi].x;
+        const dy = m_layout_nodes[ti].y - m_layout_nodes[fi].y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 1) { continue; }
+        // linear spring: F = k * x
+        //const force = sim_vars.attraction * dist;
+        // Logarithmic spring: strong pull when far, weaker when close
+        const force = m_sim_vars.attraction * Math.log(2 + dist) / m_sim_vars.linkLength;
+        const force_x = (dx / dist) * force;
+        const force_y = (dy / dist) * force;
+        m_forcesX[fi] += force_x;
+        m_forcesY[fi] += force_y;
+        m_forcesX[ti] -= force_x;
+        m_forcesY[ti] -= force_y;
+    }
+}
+
+// Central gravity toward origin
+function m_centralGravity(): void {
+    for (let i = 0; i < m_nodesCount; i++) {
+        if (isNodeFiltered(m_layout_nodes[i].node)) { continue; }
+        const px = m_layout_nodes[i].x;
+        const py = m_layout_nodes[i].y;
+        const dist = Math.sqrt(px * px + py * py);
+        if (dist < 1) { continue; }
+        const force_dist = m_sim_vars.gravity; // * Math.pow(dist, 0.25) ;
+        m_forcesX[i] -= px * force_dist;
+        m_forcesY[i] -= py * force_dist;
+    }
+}
+
+// Dynamic barycenter: apply a force towards the current center of mass of the system
+function m_dynamicBarycenter(): void {
+    let totalMass = 0;
+    let centerX = 0;
+    let centerY = 0;
+
+    // 1. Calculer le centre de masse actuel
+    for (let i = 0; i < m_nodesCount; i++) {
+        const ln = m_layout_nodes[i];
+        const m = ln.mass || 1;
+        centerX += ln.x * m;
+        centerY += ln.y * m;
+        totalMass += m;
+    }
+    centerX /= totalMass;
+    centerY /= totalMass;
+
+    // 2. Appliquer une force de rappel vers le centre de l'écran (0,0)
+    // Mais on l'applique plus faiblement aux masses lourdes (Inertie)
+    for (let i = 0; i < m_nodesCount; i++) {
+        const ln = m_layout_nodes[i];
+        const dx = centerX - ln.x; // On peut aussi tirer vers (0 - ln.x)
+        const dy = centerY - ln.y;
+
+        // Force de rappel vers l'origine pondérée par la masse
+        m_forcesX[i] -= (ln.x) * m_sim_vars.gravity * 0.1;
+        m_forcesY[i] -= (ln.y) * m_sim_vars.gravity * 0.1;
+    }
+}
+
+// Apply forces with velocity damping
+function m_applyForces(): void {
+    const max_speed = 20;
+    for (let i = 0; i < m_nodesCount; i++) {
+        if (isNodeFiltered(m_layout_nodes[i].node)) { continue; }
+        // Don't move the node being dragged
+        if (m_is_dragging_node && m_drag_node === m_layout_nodes[i]) { continue; }
+        // Pin the focused root node in place (anchor for the subgraph)
+        if (m_focused_node_id && m_layout_nodes[i].node.id === m_focused_node_id) { continue; }
+
+        const ln = m_layout_nodes[i];
+        const m = ln.mass || 1;
+
+        // Accélération = Force / Masse
+        const ax = m_forcesX[i] / m;
+        const ay = m_forcesY[i] / m;
+
+        // Application de l'accélération à la vélocité avec damping
+        ln.vx = (ln.vx + ax) * m_sim_vars.damping;
+        ln.vy = (ln.vy + ay) * m_sim_vars.damping;
+
+        // const ln = m_layout_nodes[i];
+        // ln.vx = (ln.vx + m_forcesX[i]) * m_sim_vars.damping;
+        // ln.vy = (ln.vy + m_forcesY[i]) * m_sim_vars.damping;
+
+        // Clamp speed
+        const speed = Math.sqrt(ln.vx * ln.vx + ln.vy * ln.vy);
+        if (speed > max_speed) {
+            ln.vx = (ln.vx / speed) * max_speed;
+            ln.vy = (ln.vy / speed) * max_speed;
+        }
+
+        ln.x += ln.vx;
+        ln.y += ln.vy;
+        m_total_sim_energy += Math.abs(ln.vx) + Math.abs(ln.vy);
     }
 }
 
 function simulationStep(): void {
-    if (!sim_running) { return; }
+    if (!m_sim_running) { return; }
 
-    for (let step = 0; step < sim_vars.stepsPerFrame; step++) {
-        total_sim_energy = 0;
+    for (let step = 0; step < m_sim_vars.stepsPerFrame; step++) {
+        m_total_sim_energy = 0;
 
-        // Build index
-        const node_index = new Map<string, number>();
-        layout_nodes.forEach((ln, i) => node_index.set(ln.node.id, i));
-
-        const n = layout_nodes.length;
-        const fx = new Float64Array(n);
-        const fy = new Float64Array(n);
-
-        // Build adjacency set and degree count for connectivity-aware repulsion
-        // This allows us to apply stronger repulsion between unconnected nodes, 
-        // especially high-degree ones, to reduce clutter around hubs and improve overall layout clarity
-        const adjacency = new Map<string, Set<string>>(); // node id -> set of adjacent node ids
-        const degree = new Map<string, number>();// node id -> degree (number of connections)
-        for (const edge of all_edges) {
-            // Ensure both nodes are in the adjacency map
-            if (!adjacency.has(edge.from)) { adjacency.set(edge.from, new Set()); }
-            // Ensure both nodes are in the adjacency map
-            if (!adjacency.has(edge.to)) { adjacency.set(edge.to, new Set()); }
-            adjacency.get(edge.from)!.add(edge.to);
-            adjacency.get(edge.to)!.add(edge.from);
-        }
-        // Compute degree for each node
-        for (let i = 0; i < n; i++) {
-            degree.set(layout_nodes[i].node.id, adjacency.get(layout_nodes[i].node.id)?.size ?? 0);
-        }
-
-        // Repulsion between all pairs (Coulomb) -- stronger for unconnected high-degree nodes
-        for (let i = 0; i < n; i++) {
-            // Skip filtered nodes
-            if (isNodeFiltered(layout_nodes[i].node)) { continue; }
-            const id_i = layout_nodes[i].node.id;
-            const deg_i = degree.get(id_i) ?? 0;
-            const adj_i = adjacency.get(id_i);
-            for (let j = i + 1; j < n; j++) {
-                if (isNodeFiltered(layout_nodes[j].node)) { continue; }
-                const id_j = layout_nodes[j].node.id;
-                // Check if nodes are directly connected
-                const connected = adj_i !== undefined && adj_i.has(id_j);
-                let dx = layout_nodes[j].x - layout_nodes[i].x;
-                let dy = layout_nodes[j].y - layout_nodes[i].y;
-                const dist_sq = dx * dx + dy * dy;
-                let dist = Math.sqrt(dist_sq);
-                // Avoid division by zero
-                if (dist < 0.1) {
-                    dx = (Math.random() - 0.5) * 2;
-                    dy = (Math.random() - 0.5) * 2;
-                    dist = 1;
-                }
-                // Standard repulsion
-                let force = sim_vars.repulsion / (dist * dist);
-                // Extra push when closer than minDistance
-                if (dist < sim_vars.minDistance) {
-                    force *= (sim_vars.minDistance / dist);
-                }
-                // Boost repulsion for unconnected nodes based on their degree
-                // High-degree nodes push harder to reduce clutter around hubs
-                if (!connected) {
-                    const deg_j = degree.get(id_j) ?? 0;
-                    const deg_boost = 1 + 0.15 * (deg_i + deg_j);
-                    force *= deg_boost;
-                }
-                const force_x = (dx / dist) * force;
-                const force_y = (dy / dist) * force;
-                fx[i] -= force_x;
-                fy[i] -= force_y;
-                fx[j] += force_x;
-                fy[j] += force_y;
-            }
-        }
-
-        // Attraction on edges (Hooke)
-        for (const edge of all_edges) {
-            const fi = node_index.get(edge.from);
-            const ti = node_index.get(edge.to);
-            if (fi === undefined || ti === undefined) { continue; }
-            if (isNodeFiltered(layout_nodes[fi].node)) { continue; }
-            if (isNodeFiltered(layout_nodes[ti].node)) { continue; }
-            const dx = layout_nodes[ti].x - layout_nodes[fi].x;
-            const dy = layout_nodes[ti].y - layout_nodes[fi].y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist < 1) { continue; }
-            // linear spring: F = k * x
-            //const force = sim_vars.attraction * dist;
-            // Logarithmic spring: strong pull when far, weaker when close
-            const force = sim_vars.attraction * Math.log(2 + dist) / sim_vars.linkLength;
-            const force_x = (dx / dist) * force;
-            const force_y = (dy / dist) * force;
-            fx[fi] += force_x;
-            fy[fi] += force_y;
-            fx[ti] -= force_x;
-            fy[ti] -= force_y;
-        }
-
-        // Central gravity toward origin
-        for (let i = 0; i < n; i++) {
-            if (isNodeFiltered(layout_nodes[i].node)) { continue; }
-            const px = layout_nodes[i].x;
-            const py = layout_nodes[i].y;
-            const dist = Math.sqrt(px * px + py * py);
-            if (dist < 1) { continue; }
-            const force_dist = sim_vars.gravity; // * Math.pow(dist, 0.25) ;
-            fx[i] -= px * force_dist;
-            fy[i] -= py * force_dist;
-        }
-
-        // Apply forces with velocity damping
-        const max_speed = 20;
-        for (let i = 0; i < n; i++) {
-            if (isNodeFiltered(layout_nodes[i].node)) { continue; }
-            // Don't move the node being dragged
-            if (is_dragging_node && drag_node === layout_nodes[i]) { continue; }
-            // Pin the focused root node in place (anchor for the subgraph)
-            if (focused_node_id && layout_nodes[i].node.id === focused_node_id) { continue; }
-
-            const ln = layout_nodes[i];
-            ln.vx = (ln.vx + fx[i]) * sim_vars.damping;
-            ln.vy = (ln.vy + fy[i]) * sim_vars.damping;
-
-            // Clamp speed
-            const speed = Math.sqrt(ln.vx * ln.vx + ln.vy * ln.vy);
-            if (speed > max_speed) {
-                ln.vx = (ln.vx / speed) * max_speed;
-                ln.vy = (ln.vy / speed) * max_speed;
-            }
-
-            ln.x += ln.vx;
-            ln.y += ln.vy;
-            total_sim_energy += Math.abs(ln.vx) + Math.abs(ln.vy);
-        }
+        m_computeAdjancency();
+        m_repulseNodes();
+        m_attractLinks();
+        //m_centralGravity();
+        m_dynamicBarycenter();
+        m_applyForces();
 
         // Check equilibrium
-        if (total_sim_energy < sim_vars.threshold) {
+        if (m_total_sim_energy < m_sim_vars.threshold) {
             stopSimulation();
             draw();
             return;
@@ -1107,7 +1188,7 @@ function simulationStep(): void {
     }
 
     draw();
-    sim_anim_frame = requestAnimationFrame(simulationStep);
+    m_sim_anim_frame = requestAnimationFrame(simulationStep);
 }
 
 // ------------------------------------------------------------
@@ -1158,14 +1239,14 @@ function createGraph(aNodes: GraphNode[], aEdges: GraphEdge[]): void {
 
     // Filter edges to only reference existing node ids
     const valid_ids = new Set(unique.map(n => n.id));
-    all_edges = aEdges.filter(e => valid_ids.has(e.from) && valid_ids.has(e.to));
-    all_nodes = unique;
-    active_filters.clear();
+    m_all_edges = aEdges.filter(e => valid_ids.has(e.from) && valid_ids.has(e.to));
+    m_all_nodes = unique;
+    m_active_filters.clear();
 
     const empty_msg = document.getElementById('empty-message')!;
 
     initSearchBar();
-    if (all_nodes.length === 0) {
+    if (m_all_nodes.length === 0) {
         document.getElementById('graph-container')!.style.display = 'none';
         empty_msg.style.display = 'flex';
         empty_msg.textContent = 'No targets to display';
@@ -1173,21 +1254,21 @@ function createGraph(aNodes: GraphNode[], aEdges: GraphEdge[]): void {
         return;
     }
 
-    initLayoutNodes(all_nodes);
+    initLayoutNodes(m_all_nodes);
     buildFilterCheckboxes();
     recalcContainerHeight();
 
     setTimeout(() => {
         setupCanvas();
-        if (first_layout || !restoreState()) {
+        if (m_first_layout || !restoreState()) {
             centerOnNodes();
-            first_layout = false;
+            m_first_layout = false;
         }
         draw();
         // Start force simulation
         startSimulation();
         // Restore settings panel after container is visible
-        if (settings_panel_visible && !settings_panel) {
+        if (m_settings_panel_visible && !settings_panel) {
             toggleSettings(false);
         }
     }, 50);
@@ -1196,13 +1277,13 @@ function createGraph(aNodes: GraphNode[], aEdges: GraphEdge[]): void {
 /** Initialize layout nodes: preserve existing positions, new nodes in a circle */
 function initLayoutNodes(aNodes: GraphNode[]): void {
     const existing_positions = new Map<string, { x: number; y: number; vx: number; vy: number }>();
-    for (const ln of layout_nodes) {
+    for (const ln of m_layout_nodes) {
         existing_positions.set(ln.node.id, { x: ln.x, y: ln.y, vx: ln.vx, vy: ln.vy });
     }
 
     const widths = aNodes.map(n => measureNodeWidth(n.label));
 
-    layout_nodes = [];
+    m_layout_nodes = [];
     const radius = Math.max(100, aNodes.length * 10);
 
     for (let i = 0; i < aNodes.length; i++) {
@@ -1210,16 +1291,17 @@ function initLayoutNodes(aNodes: GraphNode[]): void {
         const w = widths[i];
         const existing = existing_positions.get(n.id);
         if (existing) {
-            layout_nodes.push({ node: n, x: existing.x, y: existing.y, w, vx: existing.vx, vy: existing.vy });
+            m_layout_nodes.push({ node: n, x: existing.x, y: existing.y, w, vx: existing.vx, vy: existing.vy, mass: 1 });
         } else {
             const angle = (2 * Math.PI * i) / aNodes.length;
-            layout_nodes.push({
+            m_layout_nodes.push({
                 node: n,
                 x: Math.cos(angle) * radius,
                 y: Math.sin(angle) * radius,
                 w,
                 vx: 0,
                 vy: 0,
+                mass: 1,
             });
         }
     }
@@ -1228,23 +1310,23 @@ function initLayoutNodes(aNodes: GraphNode[]): void {
 /** Reset all node positions to initial circle and restart simulation */
 function resetLayoutPositions(): void {
     stopSimulation();
-    const radius = Math.max(150, layout_nodes.length * 20);
-    for (let i = 0; i < layout_nodes.length; i++) {
-        const angle = (2 * Math.PI * i) / layout_nodes.length;
-        layout_nodes[i].x = Math.cos(angle) * radius;
-        layout_nodes[i].y = Math.sin(angle) * radius;
-        layout_nodes[i].vx = 0;
-        layout_nodes[i].vy = 0;
+    const radius = Math.max(150, m_layout_nodes.length * 20);
+    for (let i = 0; i < m_layout_nodes.length; i++) {
+        const angle = (2 * Math.PI * i) / m_layout_nodes.length;
+        m_layout_nodes[i].x = Math.cos(angle) * radius;
+        m_layout_nodes[i].y = Math.sin(angle) * radius;
+        m_layout_nodes[i].vx = 0;
+        m_layout_nodes[i].vy = 0;
     }
     draw();
     startSimulation();
 }
 
 function centerOnNodes(): void {
-    if (!canvas || layout_nodes.length === 0) { return; }
+    if (!m_canvas || m_layout_nodes.length === 0) { return; }
     let min_x = Infinity, min_y = Infinity, max_x = -Infinity, max_y = -Infinity;
     let count = 0;
-    for (const ln of layout_nodes) {
+    for (const ln of m_layout_nodes) {
         if (isNodeFiltered(ln.node)) { continue; }
         min_x = Math.min(min_x, ln.x - ln.w / 2);
         max_x = Math.max(max_x, ln.x + ln.w / 2);
@@ -1255,17 +1337,17 @@ function centerOnNodes(): void {
     if (count === 0) { return; }
     const bw = max_x - min_x;
     const bh = max_y - min_y;
-    const cw = canvas.clientWidth;
-    const ch = canvas.clientHeight;
+    const cw = m_canvas.clientWidth;
+    const ch = m_canvas.clientHeight;
 
     const pad = 40;
-    zoom = Math.min((cw - pad * 2) / Math.max(1, bw), (ch - pad * 2) / Math.max(1, bh), 2);
-    zoom = Math.max(ZOOM_MIN, zoom);
+    m_zoom = Math.min((cw - pad * 2) / Math.max(1, bw), (ch - pad * 2) / Math.max(1, bh), 2);
+    m_zoom = Math.max(ZOOM_MIN, m_zoom);
 
     const center_wx = (min_x + max_x) / 2;
     const center_wy = (min_y + max_y) / 2;
-    cam_x = cw / 2 - center_wx * zoom;
-    cam_y = ch / 2 - center_wy * zoom;
+    m_cam_x = cw / 2 - center_wx * m_zoom;
+    m_cam_y = ch / 2 - center_wy * m_zoom;
 
     saveState();
 }
@@ -1299,19 +1381,19 @@ function buildHelpButtonHtml(): string {
 }
 
 function buildSearchControlsHtml(): string {
-    const filter_icon = search_filter_mode === 'dim' ? '\u{1F441}' : '\u{1F6AB}';
-    const filter_title = search_filter_mode === 'dim'
+    const filter_icon = m_search_filter_mode === 'dim' ? '\u{1F441}' : '\u{1F6AB}';
+    const filter_title = m_search_filter_mode === 'dim'
         ? 'Mode: Dim non-matching (click to switch to Hide)'
         : 'Mode: Hide non-matching (click to switch to Dim)';
-    const mode_label = search_mode === 'name' ? 'N' : 'P';
-    const mode_title = search_mode === 'name'
+    const mode_label = m_search_mode === 'name' ? 'N' : 'P';
+    const mode_title = m_search_mode === 'name'
         ? 'Filtering by name (click to switch to path)'
         : 'Filtering by path (click to switch to name)';
-    const placeholder = search_mode === 'name' ? 'Filter by name\u2026' : 'Filter by path\u2026';
+    const placeholder = m_search_mode === 'name' ? 'Filter by name\u2026' : 'Filter by path\u2026';
     return `<div id="search-container">` +
         `<button id="search-filter-mode" title="${filter_title}">${filter_icon}</button>` +
         `<button id="search-mode" title="${mode_title}">${mode_label}</button>` +
-        `<input id="search-input" type="text" placeholder="${placeholder}" spellcheck="false" value="${escapeHtml(search_filter)}">` +
+        `<input id="search-input" type="text" placeholder="${placeholder}" spellcheck="false" value="${escapeHtml(m_search_filter)}">` +
         `<button id="search-clear" title="Clear filter">\u2715</button>` +
         `</div>`;
 }
@@ -1324,37 +1406,37 @@ function attachSearchEvents(): void {
     if (!input || !mode_btn || !clear_btn || !filter_mode_btn) { return; }
 
     mode_btn.addEventListener('click', () => {
-        search_mode = search_mode === 'name' ? 'path' : 'name';
-        input.placeholder = search_mode === 'name' ? 'Filter by name\u2026' : 'Filter by path\u2026';
-        mode_btn.textContent = search_mode === 'name' ? 'N' : 'P';
-        mode_btn.title = search_mode === 'name' ? 'Filtering by name (click to switch to path)' : 'Filtering by path (click to switch to name)';
+        m_search_mode = m_search_mode === 'name' ? 'path' : 'name';
+        input.placeholder = m_search_mode === 'name' ? 'Filter by name\u2026' : 'Filter by path\u2026';
+        mode_btn.textContent = m_search_mode === 'name' ? 'N' : 'P';
+        mode_btn.title = m_search_mode === 'name' ? 'Filtering by name (click to switch to path)' : 'Filtering by path (click to switch to name)';
         applySearchFilter();
     });
 
     filter_mode_btn.addEventListener('click', () => {
-        search_filter_mode = search_filter_mode === 'dim' ? 'hide' : 'dim';
-        filter_mode_btn.textContent = search_filter_mode === 'dim' ? '\u{1F441}' : '\u{1F6AB}';
-        filter_mode_btn.title = search_filter_mode === 'dim'
+        m_search_filter_mode = m_search_filter_mode === 'dim' ? 'hide' : 'dim';
+        filter_mode_btn.textContent = m_search_filter_mode === 'dim' ? '\u{1F441}' : '\u{1F6AB}';
+        filter_mode_btn.title = m_search_filter_mode === 'dim'
             ? 'Mode: Dim non-matching (click to switch to Hide)'
             : 'Mode: Hide non-matching (click to switch to Dim)';
         applySearchFilter();
     });
 
     clear_btn.addEventListener('click', () => {
-        search_filter = '';
+        m_search_filter = '';
         input.value = '';
         applySearchFilter();
     });
 
     input.addEventListener('input', () => {
-        search_filter = input.value;
+        m_search_filter = input.value;
         applySearchFilter();
     });
 }
 
 function applySearchFilter(): void {
     // In hide mode, filtered nodes are excluded from simulation, so restart it
-    if (search_filter_mode === 'hide') {
+    if (m_search_filter_mode === 'hide') {
         restartSimIfEnabled();
     }
     draw();
@@ -1368,7 +1450,7 @@ function buildFilterCheckboxes(): void {
     container.innerHTML = '';
 
     const type_counts = new Map<string, number>();
-    for (const n of all_nodes) {
+    for (const n of m_all_nodes) {
         type_counts.set(n.type, (type_counts.get(n.type) ?? 0) + 1);
     }
 
@@ -1381,19 +1463,19 @@ function buildFilterCheckboxes(): void {
 
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
-        checkbox.checked = !active_filters.has(type);
+        checkbox.checked = !m_active_filters.has(type);
         checkbox.addEventListener('change', () => {
             if (checkbox.checked) {
-                active_filters.delete(type);
+                m_active_filters.delete(type);
             } else {
-                active_filters.add(type);
+                m_active_filters.add(type);
             }
             restartSimIfEnabled();
             draw();
         });
 
         const span = document.createElement('span');
-        const node_of_type = all_nodes.find(n => n.type === type);
+        const node_of_type = m_all_nodes.find(n => n.type === type);
         span.textContent = ` ${type} (${count})`;
         span.style.color = node_of_type?.color ?? '#ccc';
 
@@ -1412,7 +1494,7 @@ function toggleSettings(aPersist = true): void {
     if (settings_panel) {
         settings_panel.remove();
         settings_panel = null;
-        if (aPersist) { vscode.postMessage({ type: 'updateSetting', key: 'graphSettingsVisible', value: false }); }
+        if (aPersist) { m_vscode.postMessage({ type: 'updateSetting', key: 'graphSettingsVisible', value: false }); }
         return;
     }
     settings_panel = document.createElement('div');
@@ -1422,7 +1504,7 @@ function toggleSettings(aPersist = true): void {
     const container = document.getElementById('graph-container')!;
     container.appendChild(settings_panel);
     attachSettingsEvents();
-    if (aPersist) { vscode.postMessage({ type: 'updateSetting', key: 'graphSettingsVisible', value: true }); }
+    if (aPersist) { m_vscode.postMessage({ type: 'updateSetting', key: 'graphSettingsVisible', value: true }); }
 }
 
 function resetBtn(aDefaultKey: string): string {
@@ -1446,11 +1528,11 @@ function inputRow(aId: string, aLabel: string, aSimKey: keyof SimVars, aValue: n
 function updateFooter(): void {
     const footer = document.getElementById('footer')!;
     footer.innerHTML =
-        `<span><span class="info-label">Energy:</span> <span class="info-value">${total_sim_energy.toFixed(2)}</span></span>`;
-    if (!selected_node_id) {
+        `<span><span class="info-label">Energy:</span> <span class="info-value">${m_total_sim_energy.toFixed(2)}</span></span>`;
+    if (!m_selected_node_id) {
         return;
     }
-    const ln = layout_nodes.find(l => l.node.id === selected_node_id);
+    const ln = m_layout_nodes.find(l => l.node.id === m_selected_node_id);
     if (!ln) {
         return;
     }
@@ -1483,8 +1565,8 @@ function buildConnectedSubgraph(aRootId: string): Map<string, number> {
 
     // Build directed adjacency based on current edge direction
     const adj = new Map<string, string[]>();
-    for (const edge of all_edges) {
-        if (edge_direction === GraphEdgeDirection.TARGETS_USED_BY) {
+    for (const edge of m_all_edges) {
+        if (m_edge_direction === EdgeDirection.USED_BY) {
             if (!adj.has(edge.from)) { adj.set(edge.from, []); }
             adj.get(edge.from)!.push(edge.to);
         } else {
@@ -1509,50 +1591,50 @@ function buildConnectedSubgraph(aRootId: string): Map<string, number> {
 
 /** Rebuild focus_visible_ids from focus_node_depths using focus_depth as threshold. */
 function rebuildFocusVisibleIds(): void {
-    if (!focus_node_depths) { focus_visible_ids = null; return; }
+    if (!m_focus_node_depths) { m_focus_visible_ids = null; return; }
     const ids = new Set<string>();
-    for (const [id, d] of focus_node_depths) {
-        if (d <= focus_depth) { ids.add(id); }
+    for (const [id, d] of m_focus_node_depths) {
+        if (d <= m_focus_depth) { ids.add(id); }
     }
-    focus_visible_ids = ids;
+    m_focus_visible_ids = ids;
 }
 
 /** Shift world origin to a node's position, compensate camera so nothing visually moves. */
 function shiftOriginToNode(aNodeId: string): void {
-    const focus_ln = layout_nodes.find(ln => ln.node.id === aNodeId);
+    const focus_ln = m_layout_nodes.find(ln => ln.node.id === aNodeId);
     if (!focus_ln) { return; }
     const dx = focus_ln.x;
     const dy = focus_ln.y;
-    for (const ln of layout_nodes) {
+    for (const ln of m_layout_nodes) {
         ln.x -= dx;
         ln.y -= dy;
     }
-    cam_x += dx * zoom;
-    cam_y += dy * zoom;
+    m_cam_x += dx * m_zoom;
+    m_cam_y += dy * m_zoom;
 }
 
 function focusOnNode(aNodeId: string): void {
-    const node = all_nodes.find(n => n.id === aNodeId);
+    const node = m_all_nodes.find(n => n.id === aNodeId);
     if (!node) { return; }
 
     // Build the full recursively-connected subgraph from this node
-    focus_node_depths = buildConnectedSubgraph(aNodeId);
-    focus_max_depth = 0;
-    for (const d of focus_node_depths.values()) {
-        if (d > focus_max_depth) { focus_max_depth = d; }
+    m_focus_node_depths = buildConnectedSubgraph(aNodeId);
+    m_focus_max_depth = 0;
+    for (const d of m_focus_node_depths.values()) {
+        if (d > m_focus_max_depth) { m_focus_max_depth = d; }
     }
-    focus_depth = focus_max_depth; // default to max
+    m_focus_depth = m_focus_max_depth; // default to max
     rebuildFocusVisibleIds();
 
     // Shift world origin to the focused node so gravity centers around it.
     shiftOriginToNode(aNodeId);
 
     // Check if this node is already at the end of the history
-    if (focus_history.length === 0 || focus_history[focus_history.length - 1].nodeId !== aNodeId) {
-        focus_history.push({ nodeId: aNodeId, label: node.label });
+    if (m_focus_history.length === 0 || m_focus_history[m_focus_history.length - 1].nodeId !== aNodeId) {
+        m_focus_history.push({ nodeId: aNodeId, label: node.label });
     }
-    focused_node_id = aNodeId;
-    selected_node_id = aNodeId;
+    m_focused_node_id = aNodeId;
+    m_selected_node_id = aNodeId;
 
     restartSimIfEnabled();
     updateBreadcrumb();
@@ -1561,12 +1643,12 @@ function focusOnNode(aNodeId: string): void {
 }
 
 function exitFocusView(): void {
-    focused_node_id = null;
-    focus_history = [];
-    focus_visible_ids = null;
-    focus_node_depths = null;
-    focus_depth = 0;
-    focus_max_depth = 0;
+    m_focused_node_id = null;
+    m_focus_history = [];
+    m_focus_visible_ids = null;
+    m_focus_node_depths = null;
+    m_focus_depth = 0;
+    m_focus_max_depth = 0;
     updateBreadcrumb();
     restartSimIfEnabled();
     draw();
@@ -1579,18 +1661,18 @@ function navigateBreadcrumb(aIndex: number): void {
         return;
     }
     // Trim history to the clicked index
-    focus_history = focus_history.slice(0, aIndex + 1);
-    const entry = focus_history[aIndex];
-    focused_node_id = entry.nodeId;
-    selected_node_id = entry.nodeId;
+    m_focus_history = m_focus_history.slice(0, aIndex + 1);
+    const entry = m_focus_history[aIndex];
+    m_focused_node_id = entry.nodeId;
+    m_selected_node_id = entry.nodeId;
 
     // Rebuild the connected subgraph from the navigated node
-    focus_node_depths = buildConnectedSubgraph(entry.nodeId);
-    focus_max_depth = 0;
-    for (const d of focus_node_depths.values()) {
-        if (d > focus_max_depth) { focus_max_depth = d; }
+    m_focus_node_depths = buildConnectedSubgraph(entry.nodeId);
+    m_focus_max_depth = 0;
+    for (const d of m_focus_node_depths.values()) {
+        if (d > m_focus_max_depth) { m_focus_max_depth = d; }
     }
-    focus_depth = focus_max_depth;
+    m_focus_depth = m_focus_max_depth;
     rebuildFocusVisibleIds();
     restartSimIfEnabled();
     updateBreadcrumb();
@@ -1599,10 +1681,10 @@ function navigateBreadcrumb(aIndex: number): void {
 }
 
 function buildDepthControlHtml(): string {
-    const val = focus_depth >= focus_max_depth ? focus_max_depth : focus_depth;
+    const val = m_focus_depth >= m_focus_max_depth ? m_focus_max_depth : m_focus_depth;
     return `<div id="depth-control">` +
         `<button id="depth-dec" title="Decrease depth">\u25C0</button>` +
-        `<input id="depth-input" type="number" min="1" max="${focus_max_depth}" value="${val}" title="Subgraph depth">` +
+        `<input id="depth-input" type="number" min="1" max="${m_focus_max_depth}" value="${val}" title="Subgraph depth">` +
         `<button id="depth-inc" title="Increase depth">\u25B6</button>` +
         `<button id="depth-max" title="Show all depths">Max</button>` +
         `</div>`;
@@ -1616,16 +1698,16 @@ function attachDepthEvents(): void {
     if (!input || !dec_btn || !inc_btn || !max_btn) { return; }
 
     const applyDepth = (d: number) => {
-        focus_depth = Math.max(1, Math.min(focus_max_depth, d));
-        input.value = String(focus_depth);
+        m_focus_depth = Math.max(1, Math.min(m_focus_max_depth, d));
+        input.value = String(m_focus_depth);
         rebuildFocusVisibleIds();
         restartSimIfEnabled();
         draw();
     };
 
-    dec_btn.addEventListener('click', () => applyDepth(focus_depth - 1));
-    inc_btn.addEventListener('click', () => applyDepth(focus_depth + 1));
-    max_btn.addEventListener('click', () => applyDepth(focus_max_depth));
+    dec_btn.addEventListener('click', () => applyDepth(m_focus_depth - 1));
+    inc_btn.addEventListener('click', () => applyDepth(m_focus_depth + 1));
+    max_btn.addEventListener('click', () => applyDepth(m_focus_max_depth));
     input.addEventListener('change', () => {
         const v = parseInt(input.value, 10);
         if (!isNaN(v)) { applyDepth(v); }
@@ -1638,7 +1720,7 @@ function updateBreadcrumb(): void {
     // Always rebuild: help + search controls + breadcrumb items
     let html = buildHelpButtonHtml() + buildSearchControlsHtml();
 
-    if (focused_node_id && focus_history.length > 0) {
+    if (m_focused_node_id && m_focus_history.length > 0) {
         // Depth control (between search and breadcrumb)
         html += '<span class="breadcrumb-separator">\u2502</span>';
         html += buildDepthControlHtml();
@@ -1646,12 +1728,12 @@ function updateBreadcrumb(): void {
 
         // Breadcrumb navigation
         html += '<span class="breadcrumb-item" data-bc-index="-1">All</span>';
-        for (let i = 0; i < focus_history.length; i++) {
+        for (let i = 0; i < m_focus_history.length; i++) {
             html += '<span class="breadcrumb-separator">\u203A</span>';
-            if (i === focus_history.length - 1) {
-                html += `<span class="breadcrumb-current">${escapeHtml(focus_history[i].label)}</span>`;
+            if (i === m_focus_history.length - 1) {
+                html += `<span class="breadcrumb-current">${escapeHtml(m_focus_history[i].label)}</span>`;
             } else {
-                html += `<span class="breadcrumb-item" data-bc-index="${i}">${escapeHtml(focus_history[i].label)}</span>`;
+                html += `<span class="breadcrumb-item" data-bc-index="${i}">${escapeHtml(m_focus_history[i].label)}</span>`;
             }
         }
     }
@@ -1662,7 +1744,7 @@ function updateBreadcrumb(): void {
     attachSearchEvents();
 
     // Attach depth control events
-    if (focused_node_id) { attachDepthEvents(); }
+    if (m_focused_node_id) { attachDepthEvents(); }
 
     // Attach breadcrumb click events
     bar.querySelectorAll('.breadcrumb-item').forEach(el => {
@@ -1677,13 +1759,13 @@ function updateBreadcrumb(): void {
 
 /** Check if a node should be visible in focused view (uses precomputed set) */
 function isNodeVisibleInFocus(aNodeId: string): boolean {
-    if (!focus_visible_ids) { return true; }
-    return focus_visible_ids.has(aNodeId);
+    if (!m_focus_visible_ids) { return true; }
+    return m_focus_visible_ids.has(aNodeId);
 }
 
 function buildNodeColorPickersHtml(): string {
     const present_types = new Map<string, string>();
-    for (const n of all_nodes) {
+    for (const n of m_all_nodes) {
         if (!present_types.has(n.type)) {
             present_types.set(n.type, n.color);
         }
@@ -1702,7 +1784,7 @@ function buildNodeColorPickersHtml(): string {
 }
 
 function sectionHtml(aId: string, aTitle: string, aContent: string): string {
-    const collapsed = settings_collapse_state[aId] ?? false;
+    const collapsed = m_settings_collapse_state[aId] ?? false;
     const arrow = collapsed ? '\u25B6' : '\u25BC';
     const display = collapsed ? 'none' : 'flex';
     return `<div class="settings-section" data-section="${aId}">
@@ -1718,48 +1800,48 @@ function buildSettingsHtml(): string {
         <div class="settings-row-inline">
             <label>Style</label>
             <select id="s-edgeStyle">
-                <option value="tapered"${edge_style === 'tapered' ? ' selected' : ''}>Tapered</option>
-                <option value="chevrons"${edge_style === 'chevrons' ? ' selected' : ''}>Chevrons</option>
-                <option value="line"${edge_style === 'line' ? ' selected' : ''}>Line</option>
+                <option value="${EdgeStyle.TAPERED}"${m_edge_style === EdgeStyle.TAPERED ? ' selected' : ''}>Tapered</option>
+                <option value="${EdgeStyle.CHEVRONS}"${m_edge_style === EdgeStyle.CHEVRONS ? ' selected' : ''}>Chevrons</option>
+                <option value="${EdgeStyle.LINE}"${m_edge_style === EdgeStyle.LINE ? ' selected' : ''}>Line</option>
             </select>
             ${resetBtn('edgeStyle')}
         </div>
         <div class="settings-row-inline">
             <label>Direction</label>
             <select id="s-edgeDirection">
-                <option value="${GraphEdgeDirection.USED_BY_TARGETS}"${edge_direction === GraphEdgeDirection.USED_BY_TARGETS ? ' selected' : ''}>Used by targets</option>
-                <option value="${GraphEdgeDirection.TARGETS_USED_BY}"${edge_direction === GraphEdgeDirection.TARGETS_USED_BY ? ' selected' : ''}>Targets used by</option>
+                <option value="${EdgeDirection.USED_BY}"${m_edge_direction === EdgeDirection.USED_BY ? ' selected' : ''}>Used by</option>
+                <option value="${EdgeDirection.IS_USING}"${m_edge_direction === EdgeDirection.IS_USING ? ' selected' : ''}>Is using</option>
             </select>
             ${resetBtn('edgeDirection')}
         </div>
-        ${inputRow('taperedWidth', 'Tapered Width', 'taperedWidth', sim_vars.taperedWidth, 'taperedWidth')}`;
+        ${inputRow('taperedWidth', 'Tapered Width', 'taperedWidth', m_sim_vars.taperedWidth, 'taperedWidth')}`;
 
     const sim_content = `
-        ${inputRow('repulsion', 'Repulsion', 'repulsion', sim_vars.repulsion, 'simRepulsion')}
-        ${inputRow('attraction', 'Attraction', 'attraction', sim_vars.attraction, 'simAttraction')}
-        ${inputRow('gravity', 'Gravity', 'gravity', sim_vars.gravity, 'simGravity')}
-        ${inputRow('linkLength', 'Link Length', 'linkLength', sim_vars.linkLength, 'simLinkLength')}
-        ${inputRow('minDist', 'Min Distance', 'minDistance', sim_vars.minDistance, 'simMinDistance')}
-        ${inputRow('steps', 'Steps/Frame', 'stepsPerFrame', sim_vars.stepsPerFrame, 'simStepsPerFrame')}
-        ${inputRow('threshold', 'Threshold', 'threshold', sim_vars.threshold, 'simThreshold')}
-        ${inputRow('damping', 'Damping', 'damping', sim_vars.damping, 'simDamping')}`;
+        ${inputRow('repulsion', 'Repulsion', 'repulsion', m_sim_vars.repulsion, 'simRepulsion')}
+        ${inputRow('attraction', 'Attraction', 'attraction', m_sim_vars.attraction, 'simAttraction')}
+        ${inputRow('gravity', 'Gravity', 'gravity', m_sim_vars.gravity, 'simGravity')}
+        ${inputRow('linkLength', 'Link Length', 'linkLength', m_sim_vars.linkLength, 'simLinkLength')}
+        ${inputRow('minDist', 'Min Distance', 'minDistance', m_sim_vars.minDistance, 'simMinDistance')}
+        ${inputRow('steps', 'Steps/Frame', 'stepsPerFrame', m_sim_vars.stepsPerFrame, 'simStepsPerFrame')}
+        ${inputRow('threshold', 'Threshold', 'threshold', m_sim_vars.threshold, 'simThreshold')}
+        ${inputRow('damping', 'Damping', 'damping', m_sim_vars.damping, 'simDamping')}`;
 
     const display_content = `
         <div class="settings-row-inline">
             <label class="settings-checkbox">
-            <input type="checkbox" id="s-minimap"${minimap_enabled ? ' checked' : ''}> Show minimap</label>
+            <input type="checkbox" id="s-minimap"${m_minimap_enabled ? ' checked' : ''}> Show minimap</label>
             ${resetBtn('minimap')}
         </div>`;
 
     const controls_content = `
         <div class="settings-row-inline">
             <label class="settings-checkbox">
-            <input type="checkbox" id="s-autoPause"${auto_pause_during_drag ? ' checked' : ''}> Pause during node dragging</label>
+            <input type="checkbox" id="s-autoPause"${m_auto_pause_during_drag ? ' checked' : ''}> Pause during node dragging</label>
             ${resetBtn('autoPauseDrag')}
         </div>
         <div class="settings-row-inline">
             <label>Simulation</label>
-            <button id="s-startstop" class="settings-row-inline-button">${sim_enabled ? '\u23F8 Stop' : '\u25B6 Start'}</button>
+            <button id="s-startstop" class="settings-row-inline-button">${m_sim_enabled ? '\u23F8 Stop' : '\u25B6 Start'}</button>
             ${resetBtn('simEnabled')}
         </div>
         <button id="s-restart" class="full-width-btn">\u21BA Restart Simulation</button>`;
@@ -1777,7 +1859,7 @@ function buildSettingsHtml(): string {
 function updateStartStopBtn(): void {
     const btn = settings_panel?.querySelector('#s-startstop') as HTMLButtonElement | null;
     if (btn) {
-        btn.textContent = sim_enabled ? '\u23F8 Stop' : '\u25B6 Start';
+        btn.textContent = m_sim_enabled ? '\u23F8 Stop' : '\u25B6 Start';
     }
 }
 
@@ -1792,9 +1874,9 @@ function attachSettingsEvents(): void {
             if (!content) { return; }
             const is_collapsed = content.style.display === 'none';
             content.style.display = is_collapsed ? 'flex' : 'none';
-            settings_collapse_state[section_id] = !is_collapsed;
+            m_settings_collapse_state[section_id] = !is_collapsed;
             (el as HTMLElement).textContent = (!is_collapsed ? '\u25B6' : '\u25BC') + ' ' + (el as HTMLElement).textContent!.substring(2);
-            vscode.postMessage({ type: 'updateSetting', key: 'graphSettingsCollapse', value: { ...settings_collapse_state } });
+            m_vscode.postMessage({ type: 'updateSetting', key: 'graphSettingsCollapse', value: { ...m_settings_collapse_state } });
         });
     });
 
@@ -1814,24 +1896,24 @@ function attachSettingsEvents(): void {
     // Edge style
     const edge_sel = settings_panel.querySelector('#s-edgeStyle') as HTMLSelectElement;
     edge_sel.addEventListener('change', () => {
-        edge_style = edge_sel.value as typeof edge_style;
-        vscode.postMessage({ type: 'updateSetting', key: 'graphEdgeStyle', value: edge_style });
+        m_edge_style = edge_sel.value as EdgeStyle;
+        m_vscode.postMessage({ type: 'updateSetting', key: 'graphEdgeStyle', value: m_edge_style });
         draw();
     });
 
     // Edge direction
     const dir_sel = settings_panel.querySelector('#s-edgeDirection') as HTMLSelectElement;
     dir_sel.addEventListener('change', () => {
-        edge_direction = dir_sel.value as GraphEdgeDirection;
-        vscode.postMessage({ type: 'updateSetting', key: 'graphEdgeDirection', value: edge_direction });
+        m_edge_direction = dir_sel.value as EdgeDirection;
+        m_vscode.postMessage({ type: 'updateSetting', key: 'graphEdgeDirection', value: m_edge_direction });
         // If in focus mode, rebuild subgraph with new direction
-        if (focused_node_id) {
-            focus_node_depths = buildConnectedSubgraph(focused_node_id);
-            focus_max_depth = 0;
-            for (const d of focus_node_depths.values()) {
-                if (d > focus_max_depth) { focus_max_depth = d; }
+        if (m_focused_node_id) {
+            m_focus_node_depths = buildConnectedSubgraph(m_focused_node_id);
+            m_focus_max_depth = 0;
+            for (const d of m_focus_node_depths.values()) {
+                if (d > m_focus_max_depth) { m_focus_max_depth = d; }
             }
-            focus_depth = Math.min(focus_depth, focus_max_depth);
+            m_focus_depth = Math.min(m_focus_depth, m_focus_max_depth);
             rebuildFocusVisibleIds();
             updateBreadcrumb();
         }
@@ -1842,15 +1924,15 @@ function attachSettingsEvents(): void {
     // Auto-pause checkbox
     const auto_pause_check = settings_panel.querySelector('#s-autoPause') as HTMLInputElement;
     auto_pause_check.addEventListener('change', () => {
-        auto_pause_during_drag = auto_pause_check.checked;
-        vscode.postMessage({ type: 'updateSetting', key: 'graphAutoPauseDrag', value: auto_pause_during_drag });
+        m_auto_pause_during_drag = auto_pause_check.checked;
+        m_vscode.postMessage({ type: 'updateSetting', key: 'graphAutoPauseDrag', value: m_auto_pause_during_drag });
     });
 
     // Minimap checkbox
     const minimap_check = settings_panel.querySelector('#s-minimap') as HTMLInputElement;
     minimap_check.addEventListener('change', () => {
-        minimap_enabled = minimap_check.checked;
-        vscode.postMessage({ type: 'updateSetting', key: 'graphMinimap', value: minimap_enabled });
+        m_minimap_enabled = minimap_check.checked;
+        m_vscode.postMessage({ type: 'updateSetting', key: 'graphMinimap', value: m_minimap_enabled });
         draw();
     });
 
@@ -1859,26 +1941,26 @@ function attachSettingsEvents(): void {
         const sim_key = input.dataset.simkey as keyof SimVars;
         input.addEventListener('change', () => {
             const raw = parseFloat(input.value);
-            if (isNaN(raw)) { input.value = String(sim_vars[sim_key]); return; }
+            if (isNaN(raw)) { input.value = String(m_sim_vars[sim_key]); return; }
             const clamped = clampSimVar(sim_key, raw);
-            sim_vars[sim_key] = sim_key === 'stepsPerFrame' ? Math.round(clamped) : clamped;
-            input.value = String(sim_vars[sim_key]);
+            m_sim_vars[sim_key] = sim_key === 'stepsPerFrame' ? Math.round(clamped) : clamped;
+            input.value = String(m_sim_vars[sim_key]);
             const setting_key = input_setting_keys[input.id];
             if (setting_key) {
-                vscode.postMessage({ type: 'updateSetting', key: setting_key, value: sim_vars[sim_key] });
+                m_vscode.postMessage({ type: 'updateSetting', key: setting_key, value: m_sim_vars[sim_key] });
             }
             startSimulation();
         });
     });
 
     // Node color pickers
-    const present_types = new Set(all_nodes.map(n => n.type));
+    const present_types = new Set(m_all_nodes.map(n => n.type));
     for (const type of present_types) {
         const picker = settings_panel?.querySelector(`#s-color-${type}`) as HTMLInputElement | null;
         if (!picker) { continue; }
         picker.addEventListener('input', () => {
             const new_color = picker.value;
-            for (const n of all_nodes) {
+            for (const n of m_all_nodes) {
                 if (n.type === type) { n.color = new_color; }
             }
             draw();
@@ -1886,10 +1968,10 @@ function attachSettingsEvents(): void {
             // Persist all node colors as an object
             const color_map: Record<string, string> = {};
             for (const t of present_types) {
-                const node = all_nodes.find(n => n.type === t);
+                const node = m_all_nodes.find(n => n.type === t);
                 if (node) { color_map[t] = node.color; }
             }
-            vscode.postMessage({ type: 'updateSetting', key: 'graphNodeColors', value: color_map });
+            m_vscode.postMessage({ type: 'updateSetting', key: 'graphNodeColors', value: color_map });
         });
     }
 
@@ -1898,7 +1980,7 @@ function attachSettingsEvents(): void {
     settings_panel.querySelectorAll<HTMLButtonElement>('.settings-reset-btn[data-defkey]').forEach(btn => {
         btn.addEventListener('click', () => {
             const def_key = btn.dataset.defkey!;
-            const def_val = provider_defaults[def_key];
+            const def_val = m_provider_defaults[def_key];
             if (def_val === undefined) { return; }
             const row = btn.closest('.settings-row, .settings-row-inline');
             if (!row) { return; }
@@ -1908,10 +1990,10 @@ function attachSettingsEvents(): void {
             if (num_input) {
                 const sim_key = num_input.dataset.simkey as keyof SimVars;
                 const clamped = clampSimVar(sim_key, def_val);
-                sim_vars[sim_key] = sim_key === 'stepsPerFrame' ? Math.round(clamped) : clamped;
-                num_input.value = String(sim_vars[sim_key]);
+                m_sim_vars[sim_key] = sim_key === 'stepsPerFrame' ? Math.round(clamped) : clamped;
+                num_input.value = String(m_sim_vars[sim_key]);
                 const setting_key = input_setting_keys[num_input.id];
-                if (setting_key) { vscode.postMessage({ type: 'updateSetting', key: setting_key, value: sim_vars[sim_key] }); }
+                if (setting_key) { m_vscode.postMessage({ type: 'updateSetting', key: setting_key, value: m_sim_vars[sim_key] }); }
                 startSimulation();
                 return;
             }
@@ -1934,10 +2016,10 @@ function attachSettingsEvents(): void {
 
             // simEnabled toggle (start/stop button)
             if (def_key === 'simEnabled') {
-                sim_enabled = !!def_val;
-                if (sim_enabled) { startSimulation(); } else { stopSimulation(); }
+                m_sim_enabled = !!def_val;
+                if (m_sim_enabled) { startSimulation(); } else { stopSimulation(); }
                 updateStartStopBtn();
-                vscode.postMessage({ type: 'updateSetting', key: 'graphSimEnabled', value: sim_enabled });
+                m_vscode.postMessage({ type: 'updateSetting', key: 'graphSimEnabled', value: m_sim_enabled });
                 return;
             }
         });
@@ -1947,49 +2029,49 @@ function attachSettingsEvents(): void {
     settings_panel.querySelectorAll<HTMLButtonElement>('.settings-reset-btn[data-resetcolor]').forEach(btn => {
         btn.addEventListener('click', () => {
             const type = btn.dataset.resetcolor!;
-            const def_color = provider_defaults.nodeColors?.[type];
+            const def_color = m_provider_defaults.nodeColors?.[type];
             if (!def_color) { return; }
             const picker = settings_panel!.querySelector(`#s-color-${type}`) as HTMLInputElement | null;
             if (!picker) { return; }
             picker.value = def_color;
-            for (const n of all_nodes) {
+            for (const n of m_all_nodes) {
                 if (n.type === type) { n.color = def_color; }
             }
             draw();
             buildFilterCheckboxes();
             // Persist all node colors
             const color_map: Record<string, string> = {};
-            const present = new Set(all_nodes.map(n => n.type));
+            const present = new Set(m_all_nodes.map(n => n.type));
             for (const t of present) {
-                const node = all_nodes.find(n => n.type === t);
+                const node = m_all_nodes.find(n => n.type === t);
                 if (node) { color_map[t] = node.color; }
             }
-            vscode.postMessage({ type: 'updateSetting', key: 'graphNodeColors', value: color_map });
+            m_vscode.postMessage({ type: 'updateSetting', key: 'graphNodeColors', value: color_map });
         });
     });
 
     // Start/Stop simulation
     const start_stop_btn = settings_panel.querySelector('#s-startstop') as HTMLButtonElement;
     start_stop_btn.addEventListener('click', () => {
-        if (sim_enabled) {
+        if (m_sim_enabled) {
             // User wants to stop
-            sim_enabled = false;
+            m_sim_enabled = false;
             stopSimulation();
         } else {
             // User wants to start
-            sim_enabled = true;
+            m_sim_enabled = true;
             startSimulation();
         }
         updateStartStopBtn();
-        vscode.postMessage({ type: 'updateSetting', key: 'graphSimEnabled', value: sim_enabled });
+        m_vscode.postMessage({ type: 'updateSetting', key: 'graphSimEnabled', value: m_sim_enabled });
     });
 
     // Restart simulation (reset positions)
     settings_panel.querySelector('#s-restart')!.addEventListener('click', () => {
-        sim_enabled = true;
+        m_sim_enabled = true;
         resetLayoutPositions();
         updateStartStopBtn();
-        vscode.postMessage({ type: 'updateSetting', key: 'graphSimEnabled', value: sim_enabled });
+        m_vscode.postMessage({ type: 'updateSetting', key: 'graphSimEnabled', value: m_sim_enabled });
     });
 
     // Fit to View
@@ -2006,33 +2088,31 @@ function attachSettingsEvents(): void {
 // Screenshot
 // ------------------------------------------------------------
 function takeScreenshot(): void {
-    if (!canvas) { return; }
-    const data_uri = canvas.toDataURL('image/png');
-    vscode.postMessage({ type: 'saveScreenshot', dataUri: data_uri });
+    if (!m_canvas) { return; }
+    const data_uri = m_canvas.toDataURL('image/png');
+    m_vscode.postMessage({ type: 'saveScreenshot', dataUri: data_uri });
 }
 
 // ------------------------------------------------------------
 // Apply settings received from the provider (workspace settings)
 // ------------------------------------------------------------
 function applySettingsFromProvider(aS: any): void {
-    if (aS.edgeDirection !== undefined) {
-        edge_direction = aS.edgeDirection as GraphEdgeDirection || GraphEdgeDirection.TARGETS_USED_BY;
-    }
-    if (aS.edgeStyle !== undefined) { edge_style = aS.edgeStyle as typeof edge_style; }
-    if (aS.taperedWidth !== undefined) { sim_vars.taperedWidth = aS.taperedWidth; }
-    if (aS.simRepulsion !== undefined) { sim_vars.repulsion = aS.simRepulsion; }
-    if (aS.simAttraction !== undefined) { sim_vars.attraction = aS.simAttraction; }
-    if (aS.simGravity !== undefined) { sim_vars.gravity = aS.simGravity; }
-    if (aS.simLinkLength !== undefined) { sim_vars.linkLength = aS.simLinkLength; }
-    if (aS.simMinDistance !== undefined) { sim_vars.minDistance = aS.simMinDistance; }
-    if (aS.simStepsPerFrame !== undefined) { sim_vars.stepsPerFrame = aS.simStepsPerFrame; }
-    if (aS.simThreshold !== undefined) { sim_vars.threshold = aS.simThreshold; }
-    if (aS.simDamping !== undefined) { sim_vars.damping = aS.simDamping; }
-    if (aS.minimap !== undefined) { minimap_enabled = aS.minimap; }
-    if (aS.autoPauseDrag !== undefined) { auto_pause_during_drag = aS.autoPauseDrag; }
-    if (aS.simEnabled !== undefined) { sim_enabled = aS.simEnabled; }
-    if (aS.settingsCollapse !== undefined) { settings_collapse_state = aS.settingsCollapse; }
-    if (aS.settingsVisible !== undefined) { settings_panel_visible = aS.settingsVisible; }
+    if (aS.edgeDirection !== undefined) { m_edge_direction = aS.edgeDirection as EdgeDirection || EdgeDirection.USED_BY; }
+    if (aS.edgeStyle !== undefined) { m_edge_style = aS.edgeStyle as EdgeStyle || EdgeStyle.TAPERED; }
+    if (aS.taperedWidth !== undefined) { m_sim_vars.taperedWidth = aS.taperedWidth; }
+    if (aS.simRepulsion !== undefined) { m_sim_vars.repulsion = aS.simRepulsion; }
+    if (aS.simAttraction !== undefined) { m_sim_vars.attraction = aS.simAttraction; }
+    if (aS.simGravity !== undefined) { m_sim_vars.gravity = aS.simGravity; }
+    if (aS.simLinkLength !== undefined) { m_sim_vars.linkLength = aS.simLinkLength; }
+    if (aS.simMinDistance !== undefined) { m_sim_vars.minDistance = aS.simMinDistance; }
+    if (aS.simStepsPerFrame !== undefined) { m_sim_vars.stepsPerFrame = aS.simStepsPerFrame; }
+    if (aS.simThreshold !== undefined) { m_sim_vars.threshold = aS.simThreshold; }
+    if (aS.simDamping !== undefined) { m_sim_vars.damping = aS.simDamping; }
+    if (aS.minimap !== undefined) { m_minimap_enabled = aS.minimap; }
+    if (aS.autoPauseDrag !== undefined) { m_auto_pause_during_drag = aS.autoPauseDrag; }
+    if (aS.simEnabled !== undefined) { m_sim_enabled = aS.simEnabled; }
+    if (aS.settingsCollapse !== undefined) { m_settings_collapse_state = aS.settingsCollapse; }
+    if (aS.settingsVisible !== undefined) { m_settings_panel_visible = aS.settingsVisible; }
 }
 
 // ------------------------------------------------------------
@@ -2042,7 +2122,7 @@ window.addEventListener('message', (event: MessageEvent) => {
     const msg = event.data;
     switch (msg.type) {
         case 'update': {
-            if (msg.defaults) { provider_defaults = msg.defaults; }
+            if (msg.defaults) { m_provider_defaults = msg.defaults; }
             if (msg.settings) { applySettingsFromProvider(msg.settings); }
             createGraph(msg.nodes as GraphNode[], msg.edges as GraphEdge[]);
             break;
@@ -2055,7 +2135,7 @@ window.addEventListener('message', (event: MessageEvent) => {
             break;
         case 'toggleLayout':
             // Reset velocities and restart
-            for (const ln of layout_nodes) { ln.vx = 0; ln.vy = 0; }
+            for (const ln of m_layout_nodes) { ln.vx = 0; ln.vy = 0; }
             startSimulation();
             break;
         case 'focusNode':
@@ -2095,4 +2175,4 @@ function contrastTextColor(aHex: string): string {
 // ------------------------------------------------------------
 // Init
 // ------------------------------------------------------------
-vscode.postMessage({ type: 'ready' });
+m_vscode.postMessage({ type: 'ready' });

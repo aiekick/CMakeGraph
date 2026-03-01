@@ -8,14 +8,14 @@ import { WorkspaceConfigDefault } from '../config/workspace/default';
 // ------------------------------------------------------------
 
 const TARGET_SHAPES: Record<TargetType, string> = {
-    EXECUTABLE: 'diamond',
+    EXECUTABLE: 'box',
     STATIC_LIBRARY: 'box',
     SHARED_LIBRARY: 'box',
     MODULE_LIBRARY: 'box',
     OBJECT_LIBRARY: 'box',
-    INTERFACE_LIBRARY: 'ellipse',
-    SYSTEM_LIBRARY: 'ellipse',
-    UTILITY: 'triangle',
+    INTERFACE_LIBRARY: 'box',
+    SYSTEM_LIBRARY: 'box',
+    UTILITY: 'box',
 };
 
 /** CMake-generated utility targets that clutter the graph */

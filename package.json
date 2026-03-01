@@ -61,11 +61,11 @@
         "CMakeGraph.graphEdgeDirection": {
           "type": "string",
           "enum": [
-            "dependency",
-            "inverse"
+            "is-using",
+            "used-by"
           ],
-          "default": "dependency",
-          "description": "Edge arrow direction: toward dependency or inverse"
+          "default": "used-by",
+          "description": "Edge arrow direction: toward 'is-using' or 'used-by'"
         },
         "CMakeGraph.graphEdgeStyle": {
           "type": "string",
