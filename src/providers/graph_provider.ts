@@ -76,6 +76,7 @@ export class DependencyGraphProvider implements vscode.CustomReadonlyEditorProvi
         aWebviewPanel: vscode.WebviewPanel,
         _aToken: vscode.CancellationToken,
     ): void {
+        aWebviewPanel.iconPath = new vscode.ThemeIcon('type-hierarchy');
         aWebviewPanel.webview.options = {
             enableScripts: true,
             localResourceRoots: [
@@ -125,8 +126,8 @@ export class DependencyGraphProvider implements vscode.CustomReadonlyEditorProvi
 
     openInEditor(aFocusTargetId?: string): void {
         const name = aFocusTargetId
-            ? `graph-${this.m_targets.find(t => t.id === aFocusTargetId)?.name ?? 'target'}`
-            : 'dependency-graph';
+            ? `${this.m_targets.find(t => t.id === aFocusTargetId)?.name ?? 'target'}`
+            : 'project';
         const query = aFocusTargetId ? `?focusTargetId=${encodeURIComponent(aFocusTargetId)}` : '';
         const uri = vscode.Uri.from({ scheme: 'cmake-graph', path: `${name}.cmake-graph`, query: query.slice(1) || undefined });
         vscode.commands.executeCommand('vscode.openWith', uri, DependencyGraphProvider.viewType);
@@ -151,8 +152,8 @@ export class DependencyGraphProvider implements vscode.CustomReadonlyEditorProvi
     // ---- Data conversion ----
 
     private buildGraphDataMessage(): object {
-        const s = wksConfigManager.settings;
-        const colors = s.graph.colors;
+        const sets = wksConfigManager.settings;
+        const colors = sets.graph.colors;
 
         const filtered = this.m_targets.filter(t => t.type !== 'UTILITY');
         const valid_ids = new Set(filtered.map(t => t.id));
@@ -173,41 +174,41 @@ export class DependencyGraphProvider implements vscode.CustomReadonlyEditorProvi
         );
 
         const settings = {
-            edgeDirection: s.graph.edges.edgeDirection,
-            edgeStyle: s.graph.edges.edgeStyle,
-            taperedWidth: s.graph.edges.taperedWidth,
-            simRepulsion: s.graph.simulation.params.repulsion,
-            simAttraction: s.graph.simulation.params.attraction,
-            simGravity: s.graph.simulation.params.gravity,
-            simLinkLength: s.graph.simulation.params.linkLength,
-            simMinDistance: s.graph.simulation.params.minDistance,
-            simStepsPerFrame: s.graph.simulation.params.stepsPerFrame,
-            simThreshold: s.graph.simulation.params.threshold,
-            simDamping: s.graph.simulation.params.damping,
-            minimap: s.graph.simulation.controls.minimap,
-            autoPauseDrag: s.graph.simulation.controls.autoPauseDrag,
-            simEnabled: s.graph.simulation.controls.simEnabled,
-            settingsCollapse: s.graph.simulation.controls.settingsCollapse,
-            settingsVisible: s.graph.simulation.controls.settingsVisible,
+            edgeDirection: sets.graph.edges.edgeDirection,
+            edgeStyle: sets.graph.edges.edgeStyle,
+            taperedWidth: sets.graph.edges.taperedWidth,
+            simRepulsion: sets.graph.simulation.params.repulsion,
+            simAttraction: sets.graph.simulation.params.attraction,
+            simGravity: sets.graph.simulation.params.gravity,
+            simLinkLength: sets.graph.simulation.params.linkLength,
+            simMinDistance: sets.graph.simulation.params.minDistance,
+            simStepsPerFrame: sets.graph.simulation.params.stepsPerFrame,
+            simThreshold: sets.graph.simulation.params.threshold,
+            simDamping: sets.graph.simulation.params.damping,
+            minimap: sets.graph.simulation.controls.minimap,
+            autoPauseDrag: sets.graph.simulation.controls.autoPauseDrag,
+            simEnabled: sets.graph.simulation.controls.simEnabled,
+            settingsCollapse: sets.graph.simulation.controls.settingsCollapse,
+            settingsVisible: sets.graph.simulation.controls.settingsVisible,
         };
 
-        const d = WorkspaceConfigDefault.graph;
+        const defs = WorkspaceConfigDefault.graph;
         const defaults = {
-            edgeDirection: d.edges.edgeDirection,
-            edgeStyle: d.edges.edgeStyle,
-            taperedWidth: d.edges.taperedWidth,
-            simRepulsion: d.simulation.params.repulsion,
-            simAttraction: d.simulation.params.attraction,
-            simGravity: d.simulation.params.gravity,
-            simLinkLength: d.simulation.params.linkLength,
-            simMinDistance: d.simulation.params.minDistance,
-            simStepsPerFrame: d.simulation.params.stepsPerFrame,
-            simThreshold: d.simulation.params.threshold,
-            simDamping: d.simulation.params.damping,
-            minimap: d.simulation.controls.minimap,
-            autoPauseDrag: d.simulation.controls.autoPauseDrag,
-            simEnabled: d.simulation.controls.simEnabled,
-            nodeColors: d.colors,
+            edgeDirection: defs.edges.edgeDirection,
+            edgeStyle: defs.edges.edgeStyle,
+            taperedWidth: defs.edges.taperedWidth,
+            simRepulsion: defs.simulation.params.repulsion,
+            simAttraction: defs.simulation.params.attraction,
+            simGravity: defs.simulation.params.gravity,
+            simLinkLength: defs.simulation.params.linkLength,
+            simMinDistance: defs.simulation.params.minDistance,
+            simStepsPerFrame: defs.simulation.params.stepsPerFrame,
+            simThreshold: defs.simulation.params.threshold,
+            simDamping: defs.simulation.params.damping,
+            minimap: defs.simulation.controls.minimap,
+            autoPauseDrag: defs.simulation.controls.autoPauseDrag,
+            simEnabled: defs.simulation.controls.simEnabled,
+            nodeColors: defs.colors,
         };
 
         return { type: 'update', nodes, edges, settings, defaults };
@@ -218,8 +219,8 @@ export class DependencyGraphProvider implements vscode.CustomReadonlyEditorProvi
     private handleMessage(aMsg: any): void {
         switch (aMsg.type) {
             case 'nodeClick': {
-                vscode.commands.executeCommand('CMakeGraph.revealDependency', {
-                    kind: 'dependency',
+                vscode.commands.executeCommand('CMakeGraph.selectTargetInOutline', {
+                    kind: 'directLink',
                     target: { id: aMsg.targetId as string },
                 });
                 break;

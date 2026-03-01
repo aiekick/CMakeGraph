@@ -108,7 +108,7 @@ export async function activate(aContext: vscode.ExtensionContext): Promise<void>
             DependencyGraphProvider.viewType,
             graph_provider,
             {
-                supportsMultipleEditorsPerDocument: false,
+                supportsMultipleEditorsPerDocument: true,
                 webviewOptions: { retainContextWhenHidden: true },
             },
         ),
@@ -155,18 +155,14 @@ export async function activate(aContext: vscode.ExtensionContext): Promise<void>
         ['CMakeGraph.openLocation', (aFile: unknown, aLine: unknown) => cmdOpenLocation(aFile as string, aLine as number)],
         ['CMakeGraph.copyToClipboard', (...aArgs: unknown[]) => cmdCopyToClipboard(aArgs)],
         ['CMakeGraph.copySectionToClipboard', (...aArgs: unknown[]) => cmdCopySectionToClipboard(aArgs)],
-        ['CMakeGraph.revealDependency', (aNode: unknown) => cmdRevealDependency(aNode)],
+        ['CMakeGraph.selectTargetInOutline', (aNode: unknown) => cmdSelectTargetInOutline(aNode)],
         ['CMakeGraph.openSettings', cmdOpenSettings],
         ['CMakeGraph.graphEditorRefresh', () => graph_provider?.refreshActivePanel()],
         ['CMakeGraph.graphEditorSettings', () => graph_provider?.showSettings()],
         ['CMakeGraph.graphEditorScreenshot', () => graph_provider?.screenshot()],
         ['CMakeGraph.graphEditorExportCsv', () => graph_provider?.exportCsv()],
         ['CMakeGraph.openGraphInEditor', () => graph_provider?.openInEditor()],
-        ['CMakeGraph.openTargetGraphInEditor', (aNode: unknown) => {
-            if (aNode && typeof aNode === 'object' && 'kind' in aNode && (aNode as any).kind === 'target') {
-                graph_provider?.openInEditor((aNode as any).target.id);
-            }
-        }],
+        ['CMakeGraph.openTargetGraphInEditor', (aNode: unknown) => cmdOpenTargetGraphInEditor(aNode)],
     ];
 
     for (const [id, handler] of cmds) {
@@ -851,16 +847,23 @@ function extractNodeText(aNode: any): string {
     }
 }
 
-async function cmdRevealDependency(aNode: unknown): Promise<void> {
+async function cmdSelectTargetInOutline(aNode: unknown): Promise<void> {
     if (!aNode || !outline_provider || !outline_view) { return; }
     const dep = aNode as { kind: string; target?: { id: string } };
-    if (dep.kind !== 'dependency' || !dep.target) { return; }
+    if (!dep.target || dep.kind !== 'directLink') { return; }
     const target_node = outline_provider.findTargetNode(dep.target.id);
     if (!target_node) {
         vscode.window.showWarningMessage('CMakeGraph: target not found in outline.');
         return;
     }
     await outline_view.reveal(target_node, { select: true, focus: true, expand: true });
+}
+
+async function cmdOpenTargetGraphInEditor(aNode: unknown): Promise<void> {
+    if (!aNode || !outline_provider || !outline_view) { return; }
+    const dep = aNode as { kind: string; target?: { id: string } };
+    if (!dep.target || (dep.kind !== 'target' && dep.kind !== 'directLink')) { return; }
+    graph_provider?.openInEditor((aNode as any).target.id);
 }
 
 // ------------------------------------------------------------

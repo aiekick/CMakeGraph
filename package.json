@@ -322,8 +322,8 @@
         "icon": "$(clippy)"
       },
       {
-        "command": "CMakeGraph.revealDependency",
-        "title": "Show in outline",
+        "command": "CMakeGraph.selectTargetInOutline",
+        "title": "Show the target in outline",
         "category": "CMake",
         "icon": "$(eye)"
       },
@@ -649,13 +649,18 @@
         },
         {
           "command": "CMakeGraph.copyToClipboard",
-          "when": "view == CMakeGraphOutline && viewItem == outlineDirectLink",
+          "when": "view == CMakeGraphOutline && viewItem =~ /^outlineDirectLink_/",
           "group": "1_copy@1"
         },
         {
-          "command": "CMakeGraph.revealDependency",
-          "when": "view == CMakeGraphOutline && viewItem == outlineDirectLink",
-          "group": "2_nav@1"
+          "command": "CMakeGraph.selectTargetInOutline",
+          "when": "view == CMakeGraphOutline && viewItem =~ /^outlineDirectLink_/",
+          "group": "inline@1"
+        },
+        {
+          "command": "CMakeGraph.openTargetGraphInEditor",
+          "when": "view == CMakeGraphOutline && viewItem =~ /^outlineDirectLink_(?!UTILITY)/",
+          "group": "inline@2"
         },
         {
           "command": "CMakeGraph.filterOutline",

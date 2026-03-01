@@ -246,9 +246,11 @@ function setupCanvas(): void {
 
     if (!m_canvas) {
         m_canvas = document.createElement('canvas');
+        m_canvas.tabIndex = 0;
         m_canvas.style.display = 'block';
         m_canvas.style.width = '100%';
         m_canvas.style.height = '100%';
+        m_canvas.style.outline = 'none';
         container.innerHTML = '';
         container.appendChild(m_canvas);
         m_context = m_canvas.getContext('2d')!;
@@ -782,9 +784,20 @@ function hitTestNode(aPosX: number, aPosY: number): LayoutNode | null {
 // ------------------------------------------------------------
 
 function attachCanvasEvents(aCanvas: HTMLCanvasElement): void {
+    aCanvas.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (e.key === ' ') { e.preventDefault(); }
+    });
+    aCanvas.addEventListener('keyup', (e: KeyboardEvent) => {
+        if (e.key === ' ') {
+            e.preventDefault();
+            startStopSimulation();
+        }
+    });
+
     aCanvas.addEventListener('mousedown', (e: MouseEvent) => {
         if (e.button !== 0) { return; }
         e.preventDefault();
+        aCanvas.focus();
 
         const rect = aCanvas.getBoundingClientRect();
         const mx = e.clientX - rect.left;
@@ -827,6 +840,7 @@ function attachCanvasEvents(aCanvas: HTMLCanvasElement): void {
     });
 
     window.addEventListener('mousemove', (e: MouseEvent) => {
+        window.focus();
         if (is_dragging_minimap) {
             const rect = aCanvas.getBoundingClientRect();
             const mx = e.clientX - rect.left;
@@ -851,6 +865,7 @@ function attachCanvasEvents(aCanvas: HTMLCanvasElement): void {
 
     window.addEventListener('mouseup', (e: MouseEvent) => {
         if (e.button !== 0) { return; }
+        window.focus();
         if (is_dragging_minimap) {
             is_dragging_minimap = false;
             aCanvas.style.cursor = 'grab';
@@ -877,7 +892,12 @@ function attachCanvasEvents(aCanvas: HTMLCanvasElement): void {
         }
     });
 
+    aCanvas.addEventListener('click', (e: MouseEvent) => {
+        window.focus();
+    });
+
     aCanvas.addEventListener('dblclick', (e: MouseEvent) => {
+        window.focus();
         const rect = aCanvas.getBoundingClientRect();
         const mx = e.clientX - rect.left;
         const my = e.clientY - rect.top;
@@ -910,6 +930,7 @@ function attachCanvasEvents(aCanvas: HTMLCanvasElement): void {
 
     aCanvas.addEventListener('wheel', (e: WheelEvent) => {
         e.preventDefault();
+        window.focus();
         const rect = aCanvas.getBoundingClientRect();
         const mx = e.clientX - rect.left;
         const my = e.clientY - rect.top;
@@ -967,6 +988,18 @@ function stopSimulation(): void {
         cancelAnimationFrame(m_sim_anim_frame);
         m_sim_anim_frame = null;
     }
+}
+
+function startStopSimulation(): void {
+    if (m_sim_enabled) {
+        m_sim_enabled = false;
+        stopSimulation();
+    } else {
+        m_sim_enabled = true;
+        startSimulation();
+    }
+    updateStartStopBtn();
+    m_vscode.postMessage({ type: 'updateSetting', key: 'graphSimEnabled', value: m_sim_enabled });
 }
 
 let m_nodesCount: number;
@@ -2099,17 +2132,7 @@ function attachSettingsEvents(): void {
     // Start/Stop simulation
     const start_stop_btn = settings_panel.querySelector('#s-startstop') as HTMLButtonElement;
     start_stop_btn.addEventListener('click', () => {
-        if (m_sim_enabled) {
-            // User wants to stop
-            m_sim_enabled = false;
-            stopSimulation();
-        } else {
-            // User wants to start
-            m_sim_enabled = true;
-            startSimulation();
-        }
-        updateStartStopBtn();
-        m_vscode.postMessage({ type: 'updateSetting', key: 'graphSimEnabled', value: m_sim_enabled });
+        startStopSimulation();
     });
 
     // Restart simulation (reset positions)

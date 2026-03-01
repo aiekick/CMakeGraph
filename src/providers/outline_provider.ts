@@ -42,8 +42,19 @@ const TARGET_ICONS: Record<TargetType, string> = {
     MODULE_LIBRARY: 'library',
     OBJECT_LIBRARY: 'file-binary',
     INTERFACE_LIBRARY: 'symbol-interface',
-    SYSTEM_LIBRARY: 'ellipse',
+    SYSTEM_LIBRARY: 'circle-outline',
     UTILITY: 'tools',
+};
+
+const TARGET_TYPE_LABELS: Record<TargetType, string> = {
+    EXECUTABLE: 'Executable',
+    STATIC_LIBRARY: 'Static',
+    SHARED_LIBRARY: 'Shared',
+    MODULE_LIBRARY: 'Module',
+    OBJECT_LIBRARY: 'Object',
+    INTERFACE_LIBRARY: 'Interface',
+    SYSTEM_LIBRARY: 'System',
+    UTILITY: '',
 };
 
 // ------------------------------------------------------------
@@ -602,7 +613,7 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
         const item = new vscode.TreeItem(t.name, vscode.TreeItemCollapsibleState.Collapsed);
         item.id = `target:${t.id}`;
         item.iconPath = new vscode.ThemeIcon(TARGET_ICONS[t.type] ?? 'circle-outline');
-        item.description = t.type;
+        item.description = TARGET_TYPE_LABELS[t.type] || '';
         item.contextValue = `outlineTarget_${t.type}`;
         item.tooltip = this.targetTooltip(t);
         return item;
@@ -706,9 +717,12 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
         const t = node.target;
         const item = new vscode.TreeItem(t.name, vscode.TreeItemCollapsibleState.None);
         item.iconPath = new vscode.ThemeIcon(TARGET_ICONS[t.type] ?? 'symbol-method');
-        item.description = t.type;
-        item.tooltip = `Direct Link: ${t.name} (${t.type})`;
-        item.contextValue = 'outlineDirectLink';
+        const label = TARGET_TYPE_LABELS[t.type] || '';
+        item.description = label;
+        item.tooltip = label
+            ? `Direct Link: ${t.name} (${label})`
+            : `Direct Link: ${t.name}`;
+        item.contextValue = `outlineDirectLink_${t.type}`;
         return item;
     }
 
@@ -727,7 +741,8 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
 
     private targetTooltip(t: Target): vscode.MarkdownString {
         const md = new vscode.MarkdownString();
-        md.appendMarkdown(`**${t.name}** \`${t.type}\`\n\n`);
+        const label = TARGET_TYPE_LABELS[t.type] || '';
+        md.appendMarkdown(`**${t.name}** \`${label}\`\n\n`);
         const loc = this.resolveTargetLocation(t);
         if (loc) { md.appendMarkdown(`Defined in: \`${loc.file}:${loc.line}\`\n\n`); }
         if (t.nameOnDisk) { md.appendMarkdown(`File: \`${t.nameOnDisk}\`\n\n`); }
