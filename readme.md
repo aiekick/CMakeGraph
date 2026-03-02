@@ -11,54 +11,11 @@ CMakeGraph takes a different approach from other CMake extensions: instead of pa
 
 ## Features
 
-### Project Outline
-
-A tree view of your project structure based on the CMake codemodel:
-
-- Targets grouped by CMake folder structure (`set_property(GLOBAL PROPERTY USE_FOLDERS ON)`)
-- Source files organized by source groups or directory structure
-- Click any source file to open it in the editor
-- Click any target to jump to its `add_executable`/`add_library` definition in CMakeLists.txt
-- Build or rebuild individual targets directly from the outline via inline buttons
-- **CMake Extras** sub-tree per target:
-  - Include directories (user and system)
-  - Compile flags and defines
-  - Link flags
-  - Linked libraries
-  - Direct links (with readable type labels: Shared, Static, System, etc.). Double-click a direct link to navigate to that target in the outline
-  - Target dependencies (with "Show in outline" navigation)
-  - CMake input files
-- **Graph integration**: inline graph icon on the project item (full graph) and on each target except UTILITY (sub-graph)
-- Copy individual items or entire sections to the clipboard via right-click menu
-- Filter by target name or type
-
-### Configuration Panel
-
-Browse and edit CMake cache variables:
-
-- Variables grouped by prefix (`CMAKE_`, `BUILD_`, etc.)
-- Inline editing: booleans show ON/OFF picker, strings with `STRINGS` property show a dropdown, others show an input box
-- Editing a variable triggers an automatic reconfigure with `-D`
-- Filter by name, value, or help string
-
-### Impacted Targets
-
-Shows which targets are affected when the file you are currently editing changes.
-
-- **Transitive dependency resolution**: if you edit a file in `libA`, and `libB` depends on `libA` while `app` depends on `libB`, all three targets appear
-- Direct targets are shown normally; transitive ones are marked *(transitive)*
-- Three sections:
-  - **Libraries** -- static, shared, module, object and interface libraries
-  - **Executables** -- non-test executable targets
-  - **Tests** -- test executables identified via CTest discovery
-- Per-target inline buttons: **Build**, **Rebuild**, **Test**
-- Per-section inline buttons: **Build section**, **Rebuild section**, **Test section**
-- Hovering a test target shows the full list of associated CTest tests
-- Filter by target name or type
-
 ### Dependency Graph
 
 An interactive force-directed graph that visualizes CMake target dependencies. The graph opens as an **editor tab** (not a sidebar panel), so it can be moved to another editor group or even another screen.
+
+![graph-demo](doc/graph-demo.gif)
 
 - **Open the graph** from the outline: click the graph icon on the project item for the full graph, or on any target (except UTILITY) for a focused sub-graph
 - **Canvas-based rendering** with pan (click & drag background) and zoom (mouse wheel)
@@ -87,6 +44,55 @@ An interactive force-directed graph that visualizes CMake target dependencies. T
 - **CSV export**: exports the currently visible graph (respecting filters and focus) as a CSV file with columns: `node_a`, `type_a`, `link_type`, `node_b`, `type_b`
 - **Minimap**: a small overview of the full graph in the corner, with interactive pan and zoom
 - **Full workspace persistence**: all graph settings (colors, edge style, direction, simulation parameters, panel visibility, section collapse states) are saved in workspace settings and survive VS Code restarts
+
+### Project Outline
+
+A tree view of your project structure based on the CMake codemodel:
+
+- Targets grouped by CMake folder structure (`set_property(GLOBAL PROPERTY USE_FOLDERS ON)`)
+- Source files organized by source groups or directory structure
+- Click any source file to open it in the editor
+- Click any target to jump to its `add_executable`/`add_library` definition in CMakeLists.txt
+- Build or rebuild individual targets directly from the outline via inline buttons
+- **CMake Extras** sub-tree per target:
+  - Include directories (user and system)
+  - Compile flags and defines
+  - Link flags
+  - Linked libraries
+  - Direct links (with readable type labels: Shared, Static, System, etc.). Double-click a direct link to navigate to that target in the outline
+  - Target dependencies (with "Show in outline" navigation)
+  - CMake input files
+- **Graph integration**: inline graph icon on the project item (full graph) and on each target except UTILITY (sub-graph)
+- Copy individual items or entire sections to the clipboard via right-click menu
+- Filter by target name or type
+
+### Configuration Panel
+
+Browse and edit CMake cache variables:
+
+![configuration-demo](doc/configuration-demo.gif)
+
+- Variables grouped by prefix (`CMAKE_`, `BUILD_`, etc.)
+- Inline editing: booleans show ON/OFF picker, strings with `STRINGS` property show a dropdown, others show an input box
+- Editing a variable triggers an automatic reconfigure with `-D`
+- Filter by name, value, or help string
+
+### Impacted Targets
+
+Shows which targets are affected when the file you are currently editing changes.
+
+![impacted-targets](doc/impacted-targets.gif)
+
+- **Transitive dependency resolution**: if you edit a file in `libA`, and `libB` depends on `libA` while `app` depends on `libB`, all three targets appear
+- Direct targets are shown normally; transitive ones are marked *(transitive)*
+- Three sections:
+  - **Libraries** -- static, shared, module, object and interface libraries
+  - **Executables** -- non-test executable targets
+  - **Tests** -- test executables identified via CTest discovery
+- Per-target inline buttons: **Build**, **Rebuild**, **Test**
+- Per-section inline buttons: **Build section**, **Rebuild section**, **Test section**
+- Hovering a test target shows the full list of associated CTest tests
+- Filter by target name or type
 
 ### CTest Integration
 
