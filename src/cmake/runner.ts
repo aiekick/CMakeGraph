@@ -1,6 +1,8 @@
 import { spawn, ChildProcess } from 'child_process';
 import * as vscode from 'vscode';
 import * as os from 'os';
+import * as fs from 'fs';
+import * as path from 'path';
 import { isWindows, isClInPath, captureVcvarsEnv, findDefaultVcvarsall } from './msvc_env';
 import { CMakeDiagnosticsManager } from './diagnostics_manager';
 import { appConfigManager } from '../config/app/manager';
@@ -144,73 +146,71 @@ export class Runner {
     }
 
     // --------------------------------------------------------
+    // return build cmd
+    // --------------------------------------------------------
+    getBuildOptions(
+        aTargets: string[],
+        aPreset?: string,
+        aBuildDir?: string,
+        aConfig?: string,
+        aJobs?: number
+    ): string[] {
+        const args: string[] = [];
+        args.push('--build');
+        if (aPreset) {
+            args.push('--preset', aPreset);
+        } else {
+            args.push(aBuildDir ?? '.');
+            if (aJobs && aJobs > 0) { args.push('-j', String(aJobs)); }
+        }
+        if (aConfig) { args.push('--config', aConfig); }
+        for (const t of aTargets) { args.push('--target', t); }
+        return args;
+    }
+
+    // --------------------------------------------------------
     // cmake --build --preset <preset>  OU  cmake --build <dir>
     // --------------------------------------------------------
     async build(
-        aBuildDir: string | undefined,
-        aTarget?: string,
-        aConfig?: string,
+        aTargets: string[],
+        aCmakePath?: string,
         aPreset?: string,
-        aCmakePath?: string,
+        aFolderDir?: string,
+        aBuildDir?: string,
+        aConfig?: string,
         aJobs?: number
     ): Promise<RunResult> {
         const cmd = aCmakePath || 'cmake';
-        const args: string[] = [];
-        if (aPreset) {
-            args.push('--build', '--preset', aPreset);
-            if (aConfig) { args.push('--config', aConfig); }
-        } else {
-            args.push('--build', aBuildDir!);
-            if (aTarget) { args.push('--target', aTarget); }
-            if (aConfig) { args.push('--config', aConfig); }
-        }
-        if (aJobs && aJobs > 0) { args.push('-j', String(aJobs)); }
-        return this.run(cmd, args, aBuildDir ?? '.');
+        const args = this.getBuildOptions(aTargets, aPreset, aBuildDir, aConfig, aJobs);
+        return this.run(cmd, args, aFolderDir ?? '.');
     }
 
-    // --------------------------------------------------------
-    // cmake --build <dir> --target A --target B  (multi-target)
-    // --------------------------------------------------------
-    async buildTargets(
-        aBuildDir: string,
+    async rebuild(
         aTargets: string[],
-        aConfig?: string,
         aCmakePath?: string,
+        aPreset?: string,
+        aFolderDir?: string,
+        aBuildDir?: string,
+        aConfig?: string,
         aJobs?: number
     ): Promise<RunResult> {
         const cmd = aCmakePath || 'cmake';
-        const args = ['--build', aBuildDir];
-        for (const t of aTargets) { args.push('--target', t); }
-        if (aConfig) { args.push('--config', aConfig); }
-        if (aJobs && aJobs > 0) { args.push('-j', String(aJobs)); }
-        return this.run(cmd, args, aBuildDir);
-    }
-
-    async cleanAndBuildTargets(
-        aBuildDir: string,
-        aTargets: string[],
-        aConfig?: string,
-        aCmakePath?: string,
-        aJobs?: number
-    ): Promise<RunResult> {
-        const cmd = aCmakePath || 'cmake';
-        const args = ['--build', aBuildDir];
-        for (const t of aTargets) { args.push('--target', t); }
+        let args = this.getBuildOptions(aTargets, aPreset, aBuildDir, aConfig, aJobs);
         args.push('--clean-first');
-        if (aConfig) { args.push('--config', aConfig); }
-        if (aJobs && aJobs > 0) { args.push('-j', String(aJobs)); }
-        return this.run(cmd, args, aBuildDir);
+        return this.run(cmd, args, aFolderDir ?? '.');
     }
 
-    async clean(aBuildDir: string, aCmakePath?: string): Promise<RunResult> {
-        return this.build(aBuildDir, 'clean', undefined, undefined, aCmakePath);
-    }
-
-    async install(aBuildDir: string, aPrefix?: string, aCmakePath?: string): Promise<RunResult> {
+    async clean(
+        aCmakePath?: string,
+        aPreset?: string,
+        aFolderDir?: string,
+        aBuildDir?: string,
+        aConfig?: string,
+        aJobs?: number
+    ): Promise<RunResult> {
         const cmd = aCmakePath || 'cmake';
-        const args = ['--install', aBuildDir];
-        if (aPrefix) { args.push('--prefix', aPrefix); }
-        return this.run(cmd, args, aBuildDir);
+        const args = this.getBuildOptions(['clean'], aPreset, aBuildDir, undefined, undefined);
+        return this.run(cmd, args, aFolderDir ?? '.');
     }
 
     // --------------------------------------------------------
@@ -310,11 +310,32 @@ export class Runner {
                 this.m_channel.show(true);
             }
 
-            const spawn_env = msvc_env ? { ...msvc_env } : undefined;
+            // On Windows, merge MSVC env with process.env so cmake/ctest can still
+            // be found in PATH even when vcvarsall provides its own environment.
+            const spawn_env = msvc_env ? { ...process.env, ...msvc_env } : undefined;
+
+            const finish = (result: RunResult): void => {
+                this.m_tasks.delete(id);
+                this.m_onTasksChanged.fire(this.getRunningTasks());
+                resolve(result);
+            };
+
+            // Validate cwd exists — spawn reports misleading ENOENT on the command
+            // itself when the working directory doesn't exist.
+            const resolved_cwd = path.resolve(aCwd);
+            if (!fs.existsSync(resolved_cwd)) {
+                const msg = `Working directory does not exist: ${resolved_cwd}`;
+                if (!silent) {
+                    this.m_channel.appendLine(msg);
+                    vscode.window.showErrorMessage(msg);
+                }
+                finish({ success: false, stdout: '', stderr: msg, code: null, cancelled: false });
+                return;
+            }
 
             const proc: ChildProcess = is_win
-                ? spawn(aCmd, aArgs, { cwd: aCwd, shell: false, env: spawn_env })
-                : spawn(aCmd, aArgs, { cwd: aCwd, shell: false, detached: true });
+                ? spawn(aCmd, aArgs, { cwd: resolved_cwd, shell: false, env: spawn_env })
+                : spawn(aCmd, aArgs, { cwd: resolved_cwd, shell: false, detached: true });
 
             let stdout = '', stderr = '', killed = false;
 
@@ -341,12 +362,6 @@ export class Runner {
 
             this.m_tasks.set(id, task);
             this.m_onTasksChanged.fire(this.getRunningTasks());
-
-            const finish = (result: RunResult): void => {
-                this.m_tasks.delete(id);
-                this.m_onTasksChanged.fire(this.getRunningTasks());
-                resolve(result);
-            };
 
             /** Feed text to the diagnostic parser, handling partial lines */
             const feed_diagnostics = (text: string): void => {

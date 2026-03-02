@@ -39,14 +39,17 @@ let config_view: vscode.TreeView<unknown> | null = null;
 let outline_view: vscode.TreeView<unknown> | null = null;
 let impacted_view: vscode.TreeView<unknown> | null = null;
 let last_reply: CmakeReply | null = null;
+let folder_dir: string | null = null;
 let build_dir: string | null = null;
 let current_config: string = 'Release';
+let current_build_preset: string = '';
 let available_configs: string[] = [];
 let task_status_bar: vscode.StatusBarItem | null = null;
 let ws_state: vscode.Memento | null = null;
 
 const BUILD_DIR_STATE_KEY = 'CMakeGraph.buildDir';
 const ACTIVE_CONFIG_STATE_KEY = 'CMakeGraph.activeConfig';
+const ACTIVE_BUILD_PRESET_KEY = 'CMakeGraph.activeBuildPreset';
 
 let debugMode = false;
 
@@ -172,9 +175,11 @@ export async function activate(aContext: vscode.ExtensionContext): Promise<void>
 
     aContext.subscriptions.push(outline_view, config_view, impacted_view, runner);
 
-    const cmake_manager = new CMakeToolsIntegrationManager((aBuildDir, aBuildType) => {
+    const cmake_manager = new CMakeToolsIntegrationManager((aFolderDir, aBuildDir, aBuildType, aBuildPreset) => {
+        folder_dir = aFolderDir;
         initBuildDir(aBuildDir, aContext);
         updateAllPanesWithConfig(aBuildType);
+        setCurrentBuildPreset(aBuildPreset);
         console.log(`CMake new configure on ${aBuildDir} with Build Type : ${aBuildType}`);
     });
     cmake_manager.watch(aContext);
@@ -184,6 +189,9 @@ export async function activate(aContext: vscode.ExtensionContext): Promise<void>
 
     // Restore persisted config
     current_config = ws_state.get<string>(ACTIVE_CONFIG_STATE_KEY) || 'Release';
+
+    // Restore persisted build_preset
+    current_build_preset = ws_state.get<string>(ACTIVE_BUILD_PRESET_KEY) || '';
 
     // ── Initialize buildDir ──
     const saved_build = wksConfigManager.resolvedBuildDir
@@ -204,15 +212,15 @@ export function deactivate(): void {
 // ------------------------------------------------------------
 // Init buildDir
 // ------------------------------------------------------------
-async function initBuildDir(aDir: string, aContext: vscode.ExtensionContext): Promise<void> {
+async function initBuildDir(aBuildDir: string, aContext: vscode.ExtensionContext): Promise<void> {
     reply_watcher?.dispose();
-    build_dir = aDir;
-    ws_state?.update(BUILD_DIR_STATE_KEY, aDir);
-    api_client = new ApiClient(aDir);
+    build_dir = aBuildDir;
+    ws_state?.update(BUILD_DIR_STATE_KEY, aBuildDir);
+    api_client = new ApiClient(aBuildDir);
 
     await api_client.writeQueries();
 
-    reply_watcher = new ReplyWatcher(aDir);
+    reply_watcher = new ReplyWatcher(aBuildDir);
     reply_watcher.onDidReply(loadReply, null, aContext.subscriptions);
     aContext.subscriptions.push(reply_watcher);
 
@@ -322,6 +330,12 @@ async function updateAllPanesWithConfig(aConfig: string): Promise<void> {
 
 }
 
+async function setCurrentBuildPreset(aBuildPreset: string) {
+    current_build_preset = aBuildPreset;
+    ws_state?.update(ACTIVE_BUILD_PRESET_KEY, current_build_preset);
+    console.log(`Current Build preset : ${current_build_preset}`);
+}
+
 // ------------------------------------------------------------
 // Commands — actions
 // ------------------------------------------------------------
@@ -350,20 +364,20 @@ function getDefaultJobs(): number {
 }
 
 async function cmdBuild(): Promise<void> {
-    if (!runner || !build_dir) {
+    if (!runner || !build_dir || !folder_dir) {
         vscode.window.showWarningMessage('CMakeGraph: select a build folder first.');
         return;
     }
     const cmake_path = getCmakePath();
     const jobs = getDefaultJobs();
-    const result = await runner.build(build_dir, undefined, current_config || undefined, undefined, cmake_path, jobs);
+    const result = await runner.build([], cmake_path, current_build_preset, folder_dir, build_dir, current_config, jobs);
     if (!result.success && !result.cancelled) {
         vscode.window.showErrorMessage(`CMakeGraph: build failed (code ${result.code})`);
     }
 }
 
 async function cmdBuildTarget(aNode?: unknown): Promise<void> {
-    if (!runner || !build_dir) { return; }
+    if (!runner || !build_dir || !folder_dir) { return; }
     let target_name: string | undefined;
     if (aNode && typeof aNode === 'object' && 'kind' in aNode) {
         const kind = (aNode as { kind: string }).kind;
@@ -377,14 +391,14 @@ async function cmdBuildTarget(aNode?: unknown): Promise<void> {
     if (!target_name) { return; }
     const cmake_path = getCmakePath();
     const jobs = getDefaultJobs();
-    const result = await runner.build(build_dir, target_name, current_config || undefined, undefined, cmake_path, jobs);
+    const result = await runner.build([target_name], cmake_path, current_build_preset, folder_dir, build_dir, current_config, jobs);
     if (!result.success && !result.cancelled) {
         vscode.window.showErrorMessage(`CMakeGraph: build of '${target_name}' failed (code ${result.code})`);
     }
 }
 
 async function cmdRebuildTarget(aNode?: unknown): Promise<void> {
-    if (!runner || !build_dir) { return; }
+    if (!runner || !build_dir || !folder_dir) { return; }
     let target_name: string | undefined;
     if (aNode && typeof aNode === 'object' && 'kind' in aNode) {
         const kind = (aNode as { kind: string }).kind;
@@ -397,31 +411,32 @@ async function cmdRebuildTarget(aNode?: unknown): Promise<void> {
     }
     if (!target_name) { return; }
     const cmake_path = getCmakePath();
-    const result = await runner.cleanAndBuildTargets(build_dir, [target_name], current_config || undefined, cmake_path);
+    const jobs = getDefaultJobs();
+    const result = await runner.rebuild([target_name], cmake_path, current_build_preset, folder_dir, build_dir, current_config, jobs);
     if (!result.success && !result.cancelled) {
         vscode.window.showErrorMessage(`CMakeGraph: rebuild of '${target_name}' failed (code ${result.code})`);
     }
 }
 
 async function cmdBuildImpactedSection(aNode?: unknown): Promise<void> {
-    if (!runner || !build_dir) { return; }
+    if (!runner || !build_dir || !folder_dir) { return; }
     const targets = extractSectionTargetNames(aNode);
     if (!targets.length) { return; }
     const cmake_path = getCmakePath();
     const jobs = getDefaultJobs();
-    const result = await runner.buildTargets(build_dir, targets, current_config || undefined, cmake_path, jobs);
+    const result = await runner.build(targets, cmake_path, current_build_preset, folder_dir, build_dir, current_config, jobs);
     if (!result.success && !result.cancelled) {
         vscode.window.showErrorMessage(`CMakeGraph: build of section failed (code ${result.code})`);
     }
 }
 
 async function cmdRebuildImpactedSection(aNode?: unknown): Promise<void> {
-    if (!runner || !build_dir) { return; }
+    if (!runner || !build_dir || !folder_dir) { return; }
     const targets = extractSectionTargetNames(aNode);
     if (!targets.length) { return; }
     const cmake_path = getCmakePath();
     const jobs = getDefaultJobs();
-    const result = await runner.cleanAndBuildTargets(build_dir, targets, current_config || undefined, cmake_path, jobs);
+    const result = await runner.rebuild(targets, cmake_path, current_build_preset, folder_dir, build_dir, current_config, jobs);
     if (!result.success && !result.cancelled) {
         vscode.window.showErrorMessage(`CMakeGraph: rebuild of section failed (code ${result.code})`);
     }

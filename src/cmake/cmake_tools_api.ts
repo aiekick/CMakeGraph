@@ -5,7 +5,7 @@ export class CMakeToolsIntegrationManager {
     private m_project: Project | undefined;
     private m_disposables: vscode.Disposable[] = [];
 
-    constructor(private readonly m_onConfigureDone: (aBuildDir: string, aBuildType: string) => void) { }
+    constructor(private readonly m_onConfigureDone: (aFolderDir: string, aBuildDir: string, aBuildType: string, aBuildPreset: string) => void) { }
 
     public async watch(aContext: vscode.ExtensionContext): Promise<void> {
         // 1. init at start
@@ -44,12 +44,14 @@ export class CMakeToolsIntegrationManager {
             if (this.m_project) {
                 const sub = this.m_project.onCodeModelChanged(async () => {
                     const generator = this.m_project?.configurePreset?.generator;
+                    const folder_dir = folder.uri.fsPath;
                     const build_dir = await this.m_project?.getBuildDirectory();
+                    const build_preset = this.m_project?.buildPreset?.name;
                     let build_type = generator === "Ninja Multi-Config"
                         ? undefined
                         : await this.m_project?.getActiveBuildType();
                     if (build_dir) {
-                        this.m_onConfigureDone(build_dir, build_type ?? '');
+                        this.m_onConfigureDone(folder_dir, build_dir, build_type ?? '', build_preset ?? '');
                     }
                 });
                 this.m_disposables.push(sub);
