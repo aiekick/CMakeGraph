@@ -180,7 +180,12 @@ export async function activate(aContext: vscode.ExtensionContext): Promise<void>
         initBuildDir(aBuildDir, aContext);
         updateAllPanesWithConfig(aBuildType);
         setCurrentBuildPreset(aBuildPreset);
-        console.log(`CMake new configure on ${aBuildDir} with Build Type : ${aBuildType}`);
+        if (aBuildType != '') {
+            console.log(`[CMakeGraph] CMake new configure on ${aBuildDir} with Build Type : ${aBuildType}`);
+        }
+        if (aBuildPreset != '') {
+            console.log(`[CMakeGraph] CMake new configure on ${aBuildDir} with Build Preset : ${aBuildPreset}`);
+        }
     });
     cmake_manager.watch(aContext);
     aContext.subscriptions.push(cmake_manager);
@@ -324,7 +329,6 @@ async function updateAllPanesWithConfig(aConfig: string): Promise<void> {
         config_provider!.refresh(last_reply.cache);
         const src = last_reply.codemodel.paths?.source || '';
         impacted_provider!.refresh(last_reply.targets, src);
-
         graph_provider?.refresh(last_reply.targets);
     }
 
@@ -333,7 +337,7 @@ async function updateAllPanesWithConfig(aConfig: string): Promise<void> {
 async function setCurrentBuildPreset(aBuildPreset: string) {
     current_build_preset = aBuildPreset;
     ws_state?.update(ACTIVE_BUILD_PRESET_KEY, current_build_preset);
-    console.log(`Current Build preset : ${current_build_preset}`);
+    console.log(`[CMakeGraph] Current Build preset : ${current_build_preset}`);
 }
 
 // ------------------------------------------------------------

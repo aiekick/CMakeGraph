@@ -67,7 +67,7 @@ const output = fs.createWriteStream(vsixFilename);
 const archive = archiver('zip', { zlib: { level: 9 } });
 
 output.on('close', () => {
-    console.log(`Extension packagée avec succès : ${vsixFilename}`);
+    console.log(`[CMakeGraph] Extension packagée avec succès : ${vsixFilename}`);
 });
 
 archive.on('error', (err) => {

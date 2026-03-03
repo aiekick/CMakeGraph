@@ -453,11 +453,6 @@
     "menus": {
       "editor/title": [
         {
-          "command": "workbench.action.splitEditor",
-          "when": "activeCustomEditorId != 'CMakeGraph.graphEditor'",
-          "group": "navigation"
-        },
-        {
           "command": "CMakeGraph.graphEditorRefresh",
           "when": "activeCustomEditorId == 'CMakeGraph.graphEditor'",
           "group": "navigation@1"

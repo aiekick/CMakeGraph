@@ -16,18 +16,18 @@ export function debugDirectLinks(aReply: CmakeReply): void {
     for (const t of aReply.targets) {
         if (!t.link) {
             no_link++;
-            console.log(`[NO LINK SECTION] ${t.name} (${t.type})`);
+            console.log(`[CMakeGraph] [NO LINK SECTION] ${t.name} (${t.type})`);
             continue;
         }
         if (!t.link.commandFragments) {
             no_fragments++;
-            console.log(`[NO FRAGMENTS] ${t.name} (${t.type})`);
+            console.log(`[CMakeGraph] [NO FRAGMENTS] ${t.name} (${t.type})`);
             continue;
         }
 
         const bg = t.backtraceGraph;
         if (!bg) {
-            console.log(`[NO BACKTRACE GRAPH] ${t.name}`);
+            console.log(`[CMakeGraph] [NO BACKTRACE GRAPH] ${t.name}`);
             continue;
         }
 
@@ -35,7 +35,7 @@ export function debugDirectLinks(aReply: CmakeReply): void {
         if (tll_idx === -1) {
             no_tll++;
             // Show what commands exist
-            console.log(`[NO TLL COMMAND] ${t.name} — commands: [${bg.commands.join(', ')}]`);
+            console.log(`[CMakeGraph] [NO TLL COMMAND] ${t.name} — commands: [${bg.commands.join(', ')}]`);
             continue;
         }
 
@@ -68,7 +68,7 @@ export function debugDirectLinks(aReply: CmakeReply): void {
 
             if (!matched_id) {
                 unmatched_fragments.push(`${t.name}: "${frag.fragment}"`);
-                console.log(`  [UNMATCHED] ${t.name} → "${frag.fragment}" (sig: ${sig})`);
+                console.log(`[CMakeGraph]   [UNMATCHED] ${t.name} → "${frag.fragment}" (sig: ${sig})`);
                 continue;
             }
 
@@ -76,11 +76,11 @@ export function debugDirectLinks(aReply: CmakeReply): void {
             const matched_name = matched_target?.name ?? matched_id;
 
             if (is_transitive) {
-                console.log(`  [TRANSITIVE] ${t.name} → ${matched_name} (sig: ${sig})`);
+                console.log(`[CMakeGraph]   [TRANSITIVE] ${t.name} → ${matched_name} (sig: ${sig})`);
             } else if (matched_id !== t.id && !seen.has(matched_id)) {
                 seen.add(matched_id);
                 direct_ids.push(matched_id);
-                console.log(`  [DIRECT] ${t.name} → ${matched_name} (sig: ${sig})`);
+                console.log(`[CMakeGraph]   [DIRECT] ${t.name} → ${matched_name} (sig: ${sig})`);
             }
         }
 
@@ -92,25 +92,25 @@ export function debugDirectLinks(aReply: CmakeReply): void {
             const lib_frags = t.link.commandFragments
                 .filter(f => f.role === 'libraries')
                 .map(f => `"${f.fragment}" (bt:${f.backtrace})`);
-            console.log(`[ZERO DIRECT LINKS] ${t.name} — lib fragments: [${lib_frags.join(', ')}]`);
+            console.log(`[CMakeGraph] [ZERO DIRECT LINKS] ${t.name} — lib fragments: [${lib_frags.join(', ')}]`);
         }
     }
 
     console.log('\n=== SUMMARY ===');
-    console.log(`Total targets: ${aReply.targets.length}`);
-    console.log(`No link section: ${no_link}`);
-    console.log(`No fragments: ${no_fragments}`);
-    console.log(`No target_link_libraries cmd: ${no_tll}`);
-    console.log(`With direct links: ${has_links}`);
-    console.log(`With zero direct links: ${no_links}`);
+    console.log(`[CMakeGraph] Total targets: ${aReply.targets.length}`);
+    console.log(`[CMakeGraph] No link section: ${no_link}`);
+    console.log(`[CMakeGraph] No fragments: ${no_fragments}`);
+    console.log(`[CMakeGraph] No target_link_libraries cmd: ${no_tll}`);
+    console.log(`[CMakeGraph] With direct links: ${has_links}`);
+    console.log(`[CMakeGraph] With zero direct links: ${no_links}`);
     if (unmatched_fragments.length > 0) {
-        console.log(`\nUnmatched fragments (${unmatched_fragments.length}):`);
+        console.log(`[CMakeGraph] \nUnmatched fragments (${unmatched_fragments.length}):`);
         // Show unique fragment basenames
         const bases = new Set(unmatched_fragments.map(s => s.split('"')[1]));
         for (const b of [...bases].slice(0, 20)) {
-            console.log(`  ${b}`);
+            console.log(`[CMakeGraph]   ${b}`);
         }
-        if (bases.size > 20) console.log(`  ... and ${bases.size - 20} more`);
+        if (bases.size > 20) console.log(`[CMakeGraph]   ... and ${bases.size - 20} more`);
     }
 }
 
@@ -213,8 +213,8 @@ export function debugMissingLinks(aReply: CmakeReply): void {
         }
     }
 
-    console.log(`\n=== SUSPECTS (have deps but zero directLinks) ===`);
-    console.log(`Count: ${suspects.length}`);
+    console.log(`[CMakeGraph] \n=== SUSPECTS (have deps but zero directLinks) ===`);
+    console.log(`[CMakeGraph] Count: ${suspects.length}`);
 
     // Group by pattern
     const patterns = new Map<string, number>();
@@ -229,7 +229,7 @@ export function debugMissingLinks(aReply: CmakeReply): void {
 
     console.log('\nPatterns:');
     for (const [pattern, count] of [...patterns.entries()].sort((a, b) => b[1] - a[1])) {
-        console.log(`  ${count}x ${pattern}`);
+        console.log(`[CMakeGraph]   ${count}x ${pattern}`);
     }
 }
 
@@ -259,27 +259,27 @@ export function debugSignatures(aReply: CmakeReply): void {
     }
 
     const bg = suspect.backtraceGraph!;
-    console.log(`\n=== SUSPECT: type=${suspect.type} ===`);
-    console.log(`Commands in backtraceGraph: [${bg.commands.join(', ')}]`);
-    console.log(`Files in backtraceGraph (basenames): [${bg.files.map(f => fileBasename(f)).join(', ')}]`);
+    console.log(`[CMakeGraph] \n=== SUSPECT: type=${suspect.type} ===`);
+    console.log(`[CMakeGraph] Commands in backtraceGraph: [${bg.commands.join(', ')}]`);
+    console.log(`[CMakeGraph] Files in backtraceGraph (basenames): [${bg.files.map(f => fileBasename(f)).join(', ')}]`);
 
     const tll_idx = bg.commands.indexOf('target_link_libraries');
-    console.log(`target_link_libraries index: ${tll_idx}`);
+    console.log(`[CMakeGraph] target_link_libraries index: ${tll_idx}`);
 
     // Show first 5 library fragments with their chain details
     const lib_frags = (suspect.link?.commandFragments ?? [])
         .filter(f => f.role === 'libraries' && f.backtrace !== undefined);
 
-    console.log(`\nLibrary fragments with backtrace: ${lib_frags.length}`);
-    console.log(`\n--- First 5 fragments detail ---`);
+    console.log(`[CMakeGraph] \nLibrary fragments with backtrace: ${lib_frags.length}`);
+    console.log(`[CMakeGraph] \n--- First 5 fragments detail ---`);
 
     for (const frag of lib_frags.slice(0, 5)) {
         const node = bg.nodes[frag.backtrace!];
         const cmd_name = node.command !== undefined ? bg.commands[node.command] : '(none)';
         const file_name = fileBasename(bg.files[node.file]);
-        console.log(`\n  Fragment: "...${fileBasename(frag.fragment)}" (bt:${frag.backtrace})`);
-        console.log(`  Immediate node: cmd="${cmd_name}" file="${file_name}" line=${node.line}`);
-        console.log(`  Full chain:`);
+        console.log(`[CMakeGraph] \n  Fragment: "...${fileBasename(frag.fragment)}" (bt:${frag.backtrace})`);
+        console.log(`[CMakeGraph]   Immediate node: cmd="${cmd_name}" file="${file_name}" line=${node.line}`);
+        console.log(`[CMakeGraph]   Full chain:`);
 
         let idx: number | undefined = frag.backtrace;
         let depth = 0;
@@ -288,18 +288,18 @@ export function debugSignatures(aReply: CmakeReply): void {
             if (!n) break;
             const cmd = n.command !== undefined ? bg.commands[n.command] : '(file)';
             const file = fileBasename(bg.files[n.file]);
-            console.log(`    [${depth}] cmd="${cmd}" file="${file}" line=${n.line ?? '-'}`);
+            console.log(`[CMakeGraph]     [${depth}] cmd="${cmd}" file="${file}" line=${n.line ?? '-'}`);
             idx = n.parent;
             depth++;
         }
 
         // Show the chain signature
         const sig = resolveChainSig(bg, frag.backtrace!);
-        console.log(`  Chain sig: ${sig}`);
+        console.log(`[CMakeGraph]   Chain sig: ${sig}`);
     }
 
     // Now show signatures from first 2 deps that have sigs
-    console.log(`\n--- Dependency signatures (first 2 deps with sigs) ---`);
+    console.log(`[CMakeGraph] \n--- Dependency signatures (first 2 deps with sigs) ---`);
     let dep_count = 0;
     for (const dep of suspect.dependencies ?? []) {
         const dep_target = by_id.get(dep.id);
@@ -309,11 +309,11 @@ export function debugSignatures(aReply: CmakeReply): void {
         if (dep_count >= 2) break;
         dep_count++;
 
-        console.log(`\n  Dep: type=${dep_target.type} (${dep_sigs.size} sigs)`);
+        console.log(`[CMakeGraph] \n  Dep: type=${dep_target.type} (${dep_sigs.size} sigs)`);
         let i = 0;
         for (const s of dep_sigs) {
-            if (i >= 3) { console.log(`    ... and ${dep_sigs.size - 3} more`); break; }
-            console.log(`    sig: ${s}`);
+            if (i >= 3) { console.log(`[CMakeGraph]     ... and ${dep_sigs.size - 3} more`); break; }
+            console.log(`[CMakeGraph]     sig: ${s}`);
             i++;
         }
     }
@@ -338,16 +338,16 @@ export function debugSignatures(aReply: CmakeReply): void {
         if (dep_all_sigs.has(sig)) match_count++;
         else no_match_count++;
     }
-    console.log(`\n--- Classification ---`);
-    console.log(`Fragments matching dep sigs (transitive): ${match_count}`);
-    console.log(`Fragments NOT matching (would be direct): ${no_match_count}`);
+    console.log(`[CMakeGraph] \n--- Classification ---`);
+    console.log(`[CMakeGraph] Fragments matching dep sigs (transitive): ${match_count}`);
+    console.log(`[CMakeGraph] Fragments NOT matching (would be direct): ${no_match_count}`);
 
     // Show a few that DON'T match (if any)
     if (no_match_count > 0) {
-        console.log(`\nNon-matching fragments:`);
+        console.log(`[CMakeGraph] \nNon-matching fragments:`);
         for (const [frag, sig] of suspect_sigs) {
             if (!dep_all_sigs.has(sig)) {
-                console.log(`  "${frag}" → ${sig}`);
+                console.log(`[CMakeGraph]   "${frag}" → ${sig}`);
             }
         }
     }
