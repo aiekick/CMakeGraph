@@ -15,7 +15,7 @@ CMakeGraph takes a different approach from other CMake extensions: instead of pa
 
 An interactive force-directed graph that visualizes CMake target dependencies. The graph opens as an **editor tab** (not a sidebar panel), so it can be moved to another editor group or even another screen.
 
-![graph-demo](doc/graph-demo.gif)
+![graph-demo](https://github.com/aiekick/CMakeGraph/blob/master/doc/graph-demo.gif)
 
 - **Open the graph** from the outline: click the graph icon on the project item for the full graph, or on any target (except UTILITY) for a focused sub-graph
 - **Canvas-based rendering** with pan (click & drag background) and zoom (mouse wheel)
@@ -70,7 +70,7 @@ A tree view of your project structure based on the CMake codemodel:
 
 Browse and edit CMake cache variables:
 
-![configuration-demo](doc/configuration-demo.gif)
+![configuration-demo](https://github.com/aiekick/CMakeGraph/blob/master/doc/configuration-demo.gif)
 
 - Variables grouped by prefix (`CMAKE_`, `BUILD_`, etc.)
 - Inline editing: booleans show ON/OFF picker, strings with `STRINGS` property show a dropdown, others show an input box
@@ -81,7 +81,7 @@ Browse and edit CMake cache variables:
 
 Shows which targets are affected when the file you are currently editing changes.
 
-![impacted-targets](doc/impacted-targets.gif)
+![impacted-targets](https://github.com/aiekick/CMakeGraph/blob/master/doc/impacted-targets.gif)
 
 - **Transitive dependency resolution**: if you edit a file in `libA`, and `libB` depends on `libA` while `app` depends on `libB`, all three targets appear
 - Direct targets are shown normally; transitive ones are marked *(transitive)*
