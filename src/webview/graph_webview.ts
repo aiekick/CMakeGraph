@@ -14,7 +14,7 @@ import {
     NODE_H, TARGET_TYPES, SIM_CLAMP,
     type GraphNode, type GraphEdge, type LayoutNode, type SimVars,
     type GraphState, type RendererCallbacks, type IGraphRenderer, type ISimulation,
-    type PersistedState, type CameraState2D, type CameraState3D,
+    type PersistedState, type CameraState, type CameraState2D, type CameraState3D,
 } from './types';
 import { getCssVar, isLightTheme, escapeHtml, measureNodeWidth, clampSimVar } from './utils';
 import { Graph2DRenderer } from './graph_renderer_2d';
@@ -82,6 +82,12 @@ let m_first_layout = true;
 // Renderer & Simulation (polymorphic)
 let m_renderer: IGraphRenderer = new Graph2DRenderer();
 let m_simulation: ISimulation = new Simulation2D();
+
+// Per-mode state (saved on toggle, restored on switch-back)
+let m_saved_camera_2d: CameraState | null = null;
+let m_saved_camera_3d: CameraState | null = null;
+let m_saved_positions_2d: Map<string, { x: number; y: number }> | null = null;
+let m_saved_positions_3d: Map<string, { x: number; y: number; z: number }> | null = null;
 
 // Settings panel
 let settings_panel: HTMLDivElement | null = null;
@@ -209,6 +215,18 @@ function saveState(): void {
         persisted.camTargetY = c.targetY;
         persisted.camTargetZ = c.targetZ;
     }
+    // Persist saved cameras for the other mode
+    if (m_saved_camera_2d && m_saved_camera_2d.kind === '2d') {
+        const c = m_saved_camera_2d as CameraState2D;
+        persisted.savedCamera2d = { camX: c.camX, camY: c.camY, zoom: c.zoom };
+    }
+    if (m_saved_camera_3d && m_saved_camera_3d.kind === '3d') {
+        const c = m_saved_camera_3d as CameraState3D;
+        persisted.savedCamera3d = {
+            camYaw: c.camYaw, camPitch: c.camPitch, camDistance: c.camDistance,
+            targetX: c.targetX ?? 0, targetY: c.targetY ?? 0, targetZ: c.targetZ ?? 0,
+        };
+    }
     m_vscode.setState(persisted);
 }
 
@@ -216,6 +234,17 @@ function restoreState(): boolean {
     const s = m_vscode.getState() as PersistedState | undefined;
     if (!s || (s.camX === undefined && s.camYaw === undefined)) { return false; }
     if (s.mode3d !== undefined) { m_3d_mode = s.mode3d; }
+    // Restore saved cameras for the other mode
+    if (s.savedCamera2d) {
+        m_saved_camera_2d = { kind: '2d', camX: s.savedCamera2d.camX, camY: s.savedCamera2d.camY, zoom: s.savedCamera2d.zoom };
+    }
+    if (s.savedCamera3d) {
+        m_saved_camera_3d = {
+            kind: '3d', camYaw: s.savedCamera3d.camYaw, camPitch: s.savedCamera3d.camPitch,
+            camDistance: s.savedCamera3d.camDistance, targetX: s.savedCamera3d.targetX,
+            targetY: s.savedCamera3d.targetY, targetZ: s.savedCamera3d.targetZ,
+        };
+    }
     if (m_3d_mode) {
         if (s.camYaw !== undefined) {
             return m_renderer.restoreCamera({
@@ -477,32 +506,72 @@ function resetLayoutPositions(): void {
 // 2D/3D toggle
 // ------------------------------------------------------------
 function toggle3DMode(): void {
+    // Save current camera + node positions before switching
+    if (m_3d_mode) {
+        m_saved_camera_3d = m_renderer.saveCamera();
+        m_saved_positions_3d = new Map();
+        for (const ln of m_layout_nodes) { m_saved_positions_3d.set(ln.node.id, { x: ln.x, y: ln.y, z: ln.z }); }
+    } else {
+        m_saved_camera_2d = m_renderer.saveCamera();
+        m_saved_positions_2d = new Map();
+        for (const ln of m_layout_nodes) { m_saved_positions_2d.set(ln.node.id, { x: ln.x, y: ln.y }); }
+    }
+
     m_3d_mode = !m_3d_mode;
     m_renderer.detachEvents();
     m_renderer.dispose();
     if (m_3d_mode) {
         m_renderer = new Graph3DRenderer();
         m_simulation = new Simulation3D();
-        arrangeNodesInSphere(m_layout_nodes, Math.max(150, m_layout_nodes.length * 20));
+        // Restore saved 3D positions, or arrange in sphere if first time
+        if (m_saved_positions_3d) {
+            for (const ln of m_layout_nodes) {
+                const p = m_saved_positions_3d.get(ln.node.id);
+                if (p) { ln.x = p.x; ln.y = p.y; ln.z = p.z; }
+            }
+        } else {
+            arrangeNodesInSphere(m_layout_nodes, Math.max(150, m_layout_nodes.length * 20));
+        }
     } else {
         m_renderer = new Graph2DRenderer();
         m_simulation = new Simulation2D();
-        for (const ln of m_layout_nodes) { ln.z = 0; ln.vz = 0; }
+        // Restore saved 2D positions, or flatten Z if first time
+        if (m_saved_positions_2d) {
+            for (const ln of m_layout_nodes) {
+                const p = m_saved_positions_2d.get(ln.node.id);
+                if (p) { ln.x = p.x; ln.y = p.y; }
+                ln.z = 0; ln.vz = 0;
+            }
+        } else {
+            for (const ln of m_layout_nodes) { ln.z = 0; ln.vz = 0; }
+        }
     }
     // Recreate canvas — a canvas with a WebGL context can't switch to 2D and vice-versa
     if (m_canvas) {
         const container = m_canvas.parentElement!;
-        container.innerHTML = '';
+        // Remove old canvas + overlay only (preserve settings panel & other children)
+        const oldOverlay = container.querySelector('canvas[data-overlay]');
+        if (oldOverlay) { oldOverlay.remove(); }
+        m_canvas.remove();
         m_canvas = createCanvasElement();
-        container.appendChild(m_canvas);
+        container.insertBefore(m_canvas, container.firstChild);
         m_renderer.init(m_canvas);
         m_renderer.attachEvents(m_canvas, m_renderer_callbacks);
         resizeCanvas();
-        m_renderer.centerOnNodes(m_layout_nodes, isNodeFiltered);
+        // Restore saved camera for this mode, or center if first time
+        const saved = m_3d_mode ? m_saved_camera_3d : m_saved_camera_2d;
+        if (!saved || !m_renderer.restoreCamera(saved)) {
+            m_renderer.centerOnNodes(m_layout_nodes, isNodeFiltered);
+        }
     }
     m_vscode.postMessage({ type: 'updateSetting', key: 'graph3DMode', value: m_3d_mode });
     const btn = document.getElementById('mode-3d-btn');
     if (btn) { btn.textContent = m_3d_mode ? '3D' : '2D'; }
+    // Rebuild settings panel to reflect mode-specific options
+    if (settings_panel) {
+        settings_panel.innerHTML = buildSettingsHtml();
+        attachSettingsEvents();
+    }
     restartSimIfEnabled();
     saveState();
     draw();
@@ -926,11 +995,11 @@ function buildSettingsHtml(): string {
 
     const sim = `${inputRow('repulsion', 'Repulsion', 'repulsion', m_sim_vars.repulsion, 'simRepulsion')}${inputRow('attraction', 'Attraction', 'attraction', m_sim_vars.attraction, 'simAttraction')}${inputRow('gravity', 'Gravity', 'gravity', m_sim_vars.gravity, 'simGravity')}${inputRow('linkLength', 'Link Length', 'linkLength', m_sim_vars.linkLength, 'simLinkLength')}${inputRow('minDist', 'Min Distance', 'minDistance', m_sim_vars.minDistance, 'simMinDistance')}${inputRow('steps', 'Steps/Frame', 'stepsPerFrame', m_sim_vars.stepsPerFrame, 'simStepsPerFrame')}${inputRow('threshold', 'Threshold', 'threshold', m_sim_vars.threshold, 'simThreshold')}${inputRow('damping', 'Damping', 'damping', m_sim_vars.damping, 'simDamping')}`;
 
-    const display = `<div class="settings-row-inline"><label class="settings-checkbox"><input type="checkbox" id="s-3dmode"${m_3d_mode ? ' checked' : ''}> 3D Mode</label>${resetBtn('mode3d')}</div><div class="settings-row-inline"><label class="settings-checkbox"><input type="checkbox" id="s-minimap"${m_minimap_enabled ? ' checked' : ''}${m_3d_mode ? ' disabled' : ''}> Show minimap</label>${resetBtn('minimap')}</div>`;
+    const display = m_3d_mode ? '' : `<div class="settings-row-inline"><label class="settings-checkbox"><input type="checkbox" id="s-minimap"${m_minimap_enabled ? ' checked' : ''}> Show minimap</label>${resetBtn('minimap')}</div>`;
 
     const controls = `<div class="settings-row-inline"><label class="settings-checkbox"><input type="checkbox" id="s-autoPause"${m_auto_pause_during_drag ? ' checked' : ''}> Pause during node dragging</label>${resetBtn('autoPauseDrag')}</div><div class="settings-row-inline"><label>Simulation</label><button id="s-startstop" class="settings-row-inline-button">${m_sim_enabled ? '\u23F8 Stop' : '\u25B6 Start'}</button>${resetBtn('simEnabled')}</div><button id="s-restart" class="full-width-btn">\u21BA Restart Simulation</button>`;
 
-    return `<div class="settings-body">${sectionHtml('controls', 'Controls', controls)}${sectionHtml('display', 'Display', display)}${sectionHtml('edges', 'Edges', edges)}${sectionHtml('simulation', 'Force Simulation', sim)}${buildNodeColorPickersHtml()}</div>`;
+    return `<div class="settings-body">${sectionHtml('controls', 'Controls', controls)}${display ? sectionHtml('display', 'Display', display) : ''}${sectionHtml('edges', 'Edges', edges)}${sectionHtml('simulation', 'Force Simulation', sim)}${buildNodeColorPickersHtml()}</div>`;
 }
 
 function applyNodeColor(aType: string, aColor: string): void {
@@ -982,13 +1051,9 @@ function attachSettingsEvents(): void {
     const ap = settings_panel.querySelector('#s-autoPause') as HTMLInputElement;
     ap.addEventListener('change', () => { m_auto_pause_during_drag = ap.checked; m_vscode.postMessage({ type: 'updateSetting', key: 'graphAutoPauseDrag', value: m_auto_pause_during_drag }); });
 
-    // Minimap
-    const mm = settings_panel.querySelector('#s-minimap') as HTMLInputElement;
-    mm.addEventListener('change', () => { m_minimap_enabled = mm.checked; m_vscode.postMessage({ type: 'updateSetting', key: 'graphMinimap', value: m_minimap_enabled }); draw(); });
-
-    // 3D mode
-    const mode3d = settings_panel.querySelector('#s-3dmode') as HTMLInputElement;
-    mode3d.addEventListener('change', () => { toggle3DMode(); mode3d.checked = m_3d_mode; });
+    // Minimap (only present in 2D mode)
+    const mm = settings_panel.querySelector('#s-minimap') as HTMLInputElement | null;
+    if (mm) { mm.addEventListener('change', () => { m_minimap_enabled = mm.checked; m_vscode.postMessage({ type: 'updateSetting', key: 'graphMinimap', value: m_minimap_enabled }); draw(); }); }
 
     // Number inputs
     settings_panel.querySelectorAll<HTMLInputElement>('input[type="number"][data-simkey]').forEach(input => {

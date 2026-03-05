@@ -187,3 +187,8 @@ This approach means CMakeGraph works with any CMake project, regardless of compl
 ## License
 
 MIT -- see [LICENSE](LICENSE) for details.
+
+## Changelog
+
+* v0.0.2 : Fix issues regarding switch between 2d and 3d graph
+* v0.0.1 : First version

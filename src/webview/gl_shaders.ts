@@ -151,7 +151,7 @@ void main() {
     // Interpolate position and width along edge
     float t = a_corner.x;
     vec4 clip = mix(clipFrom, clipTo, t);
-    float w = mix(a_widthFrom, a_widthTo, t);
+    float w = mix(a_widthFrom, a_widthTo, t) * 0.5;
 
     // Offset in screen-space perpendicular direction
     vec2 offset = perp * a_corner.y * w;

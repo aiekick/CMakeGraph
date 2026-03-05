@@ -133,6 +133,9 @@ export interface PersistedState {
     camTargetX?: number;
     camTargetY?: number;
     camTargetZ?: number;
+    // Saved camera for the OTHER mode (so toggling restores the previous view)
+    savedCamera2d?: { camX: number; camY: number; zoom: number };
+    savedCamera3d?: { camYaw: number; camPitch: number; camDistance: number; targetX: number; targetY: number; targetZ: number };
 }
 
 // ------------------------------------------------------------
