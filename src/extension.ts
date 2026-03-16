@@ -51,6 +51,14 @@ const ACTIVE_BUILD_PRESET_KEY = 'CMakeGraph.activeBuildPreset';
 let debugMode = false;
 
 // ------------------------------------------------------------
+// Helpers — workspace checks
+// ------------------------------------------------------------
+async function workspaceHasCMakeLists(): Promise<boolean> {
+    const files = await vscode.workspace.findFiles('**/CMakeLists.txt', null, 1);
+    return files.length > 0;
+}
+
+// ------------------------------------------------------------
 // Activation
 // ------------------------------------------------------------
 export async function activate(aContext: vscode.ExtensionContext): Promise<void> {
@@ -172,7 +180,7 @@ export async function activate(aContext: vscode.ExtensionContext): Promise<void>
             console.log(`[CMakeGraph] CMake new configure on ${aBuildDir} with Build Preset : ${aBuildPreset}`);
         }
     });
-    cmake_manager.watch(aContext);
+    await cmake_manager.watch(aContext);
     aContext.subscriptions.push(cmake_manager);
 
     aContext.subscriptions.push(wksConfigManager, appConfigManager);
@@ -183,12 +191,20 @@ export async function activate(aContext: vscode.ExtensionContext): Promise<void>
     // Restore persisted build_preset
     current_build_preset = ws_state.get<string>(ACTIVE_BUILD_PRESET_KEY) || '';
 
-    // ── Initialize buildDir ──
-    const saved_build = wksConfigManager.resolvedBuildDir
-        || ws_state.get<string>(BUILD_DIR_STATE_KEY)
-        || null;
-    if (saved_build) {
-        await initBuildDir(saved_build, aContext);
+    // ── Initialize buildDir (standalone mode only) ──
+    // When cmake-tools is connected, it will provide the build dir via its callback.
+    // In standalone mode, only auto-init if the user explicitly set a build dir
+    // AND the workspace actually contains a CMakeLists.txt.
+    if (!cmake_manager.isConnected) {
+        const has_cmake = await workspaceHasCMakeLists();
+        if (has_cmake) {
+            const saved_build = wksConfigManager.resolvedBuildDir
+                || ws_state.get<string>(BUILD_DIR_STATE_KEY)
+                || null;
+            if (saved_build) {
+                await initBuildDir(saved_build, aContext);
+            }
+        }
     }
 }
 

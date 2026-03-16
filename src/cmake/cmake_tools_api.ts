@@ -4,6 +4,10 @@ import { Version, getCMakeToolsApi, Project } from 'vscode-cmake-tools';
 export class CMakeToolsIntegrationManager {
     private m_project: Project | undefined;
     private m_disposables: vscode.Disposable[] = [];
+    private m_connected = false;
+
+    /** True when cmake-tools API is available (we should wait for it to provide the build dir). */
+    get isConnected(): boolean { return this.m_connected; }
 
     constructor(private readonly m_onConfigureDone: (aFolderDir: string, aBuildDir: string, aBuildType: string, aBuildPreset: string) => void) { }
 
@@ -27,6 +31,7 @@ export class CMakeToolsIntegrationManager {
     private async init(): Promise<void> {
         // clearing old connection
         this.disposeProject();
+        this.m_connected = false;
 
         try {
             const api = await getCMakeToolsApi(Version.v1);
@@ -34,6 +39,7 @@ export class CMakeToolsIntegrationManager {
                 console.log('[CMakeGraph] CMake-Tools API not available');
                 return;
             }
+            this.m_connected = true;
             console.log(`[CMakeGraph] Connected to CMake-Tools with Api v${api.version}`);
 
             const folder = vscode.workspace.workspaceFolders?.[0];
