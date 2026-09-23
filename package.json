@@ -2,7 +2,7 @@
   "name": "cmakegraph",
   "displayName": "Cmake Graph",
   "description": "CMake dependency explorer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "aiekick",
   "engines": {
     "vscode": "^1.80.0"
@@ -267,6 +267,12 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "CMakeGraph.configureWithDebugger",
+        "title": "Configure with CMake Debugger",
+        "category": "CMake",
+        "icon": "$(debug)"
+      },
+      {
         "command": "CMakeGraph.refreshConfig",
         "title": "Refresh",
         "category": "CMake",
@@ -500,14 +506,19 @@
           "group": "navigation@5"
         },
         {
-          "command": "CMakeGraph.refreshOutline",
+          "command": "CMakeGraph.configureWithDebugger",
           "when": "view == CMakeGraphOutline",
           "group": "navigation@6"
         },
         {
-          "command": "CMakeGraph.openSettings",
+          "command": "CMakeGraph.refreshOutline",
           "when": "view == CMakeGraphOutline",
           "group": "navigation@7"
+        },
+        {
+          "command": "CMakeGraph.openSettings",
+          "when": "view == CMakeGraphOutline",
+          "group": "navigation@8"
         },
         {
           "command": "CMakeGraph.selectBuildDir",
@@ -722,6 +733,17 @@
         "language": "cmakegraph-output",
         "scopeName": "source.cmakegraph-output",
         "path": "./syntaxes/output_coloration.tmLanguage.json"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "cmakegraph",
+        "label": "CMakeGraph CMake Debugger"
+      }
+    ],
+    "breakpoints": [
+      {
+        "language": "cmake"
       }
     ]
   },

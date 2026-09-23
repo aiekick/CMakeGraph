@@ -28,6 +28,8 @@ interface RunOptions {
     silent?: boolean;
     /** When set, enables CMake diagnostic parsing and resolves relative paths against this dir */
     diagnosticsSourceDir?: string;
+    /** Called with each stdout/stderr chunk */
+    onOutput?: (aText: string) => void;
 }
 
 // ------------------------------------------------------------
@@ -143,6 +145,21 @@ export class Runner {
         for (const [k, v] of Object.entries(aDefs)) { args.push(`-D${k}=${v}`); }
         const cwd = aSourceDir ?? '.';
         return this.run(cmd, args, cwd, { diagnosticsSourceDir: cwd });
+    }
+
+    // --------------------------------------------------------
+    // cmake -S <src> -B <build> --debugger --debugger-pipe <pipe>
+    // --------------------------------------------------------
+    async configureWithDebugger(
+        aSourceDir: string,
+        aBuildDir: string,
+        aPipeName: string,
+        aOnOutput: (aText: string) => void,
+        aCmakePath?: string
+    ): Promise<RunResult> {
+        const cmd = aCmakePath || 'cmake';
+        const args = ['-S', aSourceDir, '-B', aBuildDir, '--debugger', '--debugger-pipe', aPipeName];
+        return this.run(cmd, args, aSourceDir, { diagnosticsSourceDir: aSourceDir, onOutput: aOnOutput });
     }
 
     // --------------------------------------------------------
@@ -288,7 +305,7 @@ export class Runner {
     // Private
     // --------------------------------------------------------
     private run(aCmd: string, aArgs: string[], aCwd: string, aOpts: RunOptions = {}): Promise<RunResult> {
-        const { silent, diagnosticsSourceDir } = aOpts;
+        const { silent, diagnosticsSourceDir, onOutput } = aOpts;
         const id = this.m_nextId++;
         const label = `${aCmd} ${aArgs.join(' ')}`;
         const is_win = os.platform() === 'win32';
@@ -380,12 +397,14 @@ export class Runner {
                 stdout += text;
                 if (!silent) { this.m_channel.append(text); }
                 feed_diagnostics(text);
+                onOutput?.(text);
             });
             proc.stderr?.on('data', (chunk: Buffer) => {
                 const text = chunk.toString();
                 stderr += text;
                 if (!silent) { this.m_channel.append(text); }
                 feed_diagnostics(text);
+                onOutput?.(text);
             });
             proc.on('error', err => {
                 const msg = `Unable to launch ${aCmd}: ${err.message}`;

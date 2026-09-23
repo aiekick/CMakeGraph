@@ -11,6 +11,7 @@ import { CMakeFileDecorationProvider } from './providers/decoration_provider';
 import { ImpactedTargetsProvider } from './providers/impacted_provider';
 import { DependencyGraphProvider } from './providers/graph_provider';
 import { CMakeToolsIntegrationManager } from './cmake/cmake_tools_api';
+import { CMAKE_DEBUG_TYPE, CMakeDebugAdapterFactory, getDebuggerPipeName } from './cmake/cmake_debugger';
 import { computeDirectLinks } from './cmake/direct_links_converter';
 import { debugDirectLinks, debugMissingLinks, debugSignatures } from './cmake/debug_direct_links';
 import { wksConfigManager } from './config/workspace/manager';
@@ -148,6 +149,7 @@ export async function activate(aContext: vscode.ExtensionContext): Promise<void>
         ['CMakeGraph.test', cmdTest],
         ['CMakeGraph.refresh', cmdRefresh],
         ['CMakeGraph.refreshOutline', cmdRefresh],
+        ['CMakeGraph.configureWithDebugger', cmdConfigureWithDebugger],
         ['CMakeGraph.refreshConfig', cmdRefresh],
         ['CMakeGraph.refreshImpacted', cmdRefresh],
         ['CMakeGraph.editCacheEntry', (e: unknown) => cmdEditCacheEntry(e as CacheEntry)],
@@ -174,6 +176,14 @@ export async function activate(aContext: vscode.ExtensionContext): Promise<void>
     }
 
     aContext.subscriptions.push(outline_view, config_view, impacted_view, runner);
+
+    aContext.subscriptions.push(vscode.debug.registerDebugAdapterDescriptorFactory(
+        CMAKE_DEBUG_TYPE,
+        new CMakeDebugAdapterFactory((aPipeName, aOnOutput) => {
+            const src = last_reply?.codemodel.paths?.source || folder_dir || build_dir!;
+            return runner!.configureWithDebugger(src, build_dir!, aPipeName, aOnOutput, getCmakePath());
+        })
+    ));
 
     const cmake_manager = new CMakeToolsIntegrationManager((aFolderDir, aBuildDir, aBuildType, aBuildPreset) => {
         folder_dir = aFolderDir;
@@ -584,6 +594,27 @@ async function cmdExpandAllOutline(): Promise<void> {
             }
         }
     }
+}
+
+async function cmdConfigureWithDebugger(): Promise<void> {
+    if (!runner || !build_dir) {
+        vscode.window.showWarningMessage('CMakeGraph: no build directory. Select one first.');
+        return;
+    }
+    // --debugger is silently ignored by cmake < 3.27, so check the capabilities first
+    const caps = await runner.exec(getCmakePath(), ['-E', 'capabilities'], build_dir);
+    let supported = false;
+    try { supported = caps.success && JSON.parse(caps.stdout).debugger === true; } catch { /* old cmake */ }
+    if (!supported) {
+        vscode.window.showErrorMessage('CMakeGraph: this CMake version does not support the debugger (CMake >= 3.27 is required).');
+        return;
+    }
+    await vscode.debug.startDebugging(vscode.workspace.workspaceFolders?.[0], {
+        type: CMAKE_DEBUG_TYPE,
+        request: 'launch',
+        name: 'CMakeGraph: Configure with CMake Debugger',
+        pipeName: getDebuggerPipeName(),
+    });
 }
 
 async function cmdClean(): Promise<void> {
