@@ -186,9 +186,10 @@ MIT -- see [LICENSE](LICENSE) for details.
 
 ## Changelog
 
-* v0.0.1 : First version
-* v0.0.2 : Fix issues regarding switch between 2d and 3d graph
-* v0.0.3 : Fix issue regarding the creation of the cmake query even if the project have no CMakeLists.txt
-* v0.1.0 : Big refactoring of the code
-* v0.1.1 : Add a "Configure with CMake Debugger" button in the Project Outline title (CMake >= 3.27)
+* v0.1.3 : The vsix manifest carries what the Marketplace expects, like the one vsce generates; the changelog lists the newest version first again
 * v0.1.2 : Rely on CMake Tools only: build, clean and tests go through its API; the buildDir, cmakePath, ctestPath, cpackPath and defaultJobs settings and the "Select build folder" command are removed; the per target rebuild runs the cmake of the cache (CMAKE_COMMAND)
+* v0.1.1 : Add a "Configure with CMake Debugger" button in the Project Outline title (CMake >= 3.27)
+* v0.1.0 : Big refactoring of the code
+* v0.0.3 : Fix issue regarding the creation of the cmake query even if the project have no CMakeLists.txt
+* v0.0.2 : Fix issues regarding switch between 2d and 3d graph
+* v0.0.1 : First version
