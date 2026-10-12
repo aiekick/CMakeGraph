@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { Version, getCMakeToolsApi, Project } from 'vscode-cmake-tools';
+import { Version, getCMakeToolsApi, Project, CommandResult } from 'vscode-cmake-tools';
 
 export class CMakeToolsIntegrationManager {
     private m_project: Project | undefined;
@@ -22,6 +22,45 @@ export class CMakeToolsIntegrationManager {
         );
 
         aContext.subscriptions.push(this);
+    }
+
+    /** True when a CMake Tools project is connected */
+    public get isConnected(): boolean {
+        return this.m_project !== undefined;
+    }
+
+    // ------------------------------------------------------------
+    // Actions delegated to CMake Tools, which knows the kit, the
+    // presets and the environment. Each one returns null when no
+    // project is connected
+    // ------------------------------------------------------------
+
+    /** Builds the given targets, or the CMake Tools default target when empty */
+    public build(aTargets?: string[]): Promise<CommandResult | null> {
+        return this.run('build', p => p.buildWithResult(aTargets?.length ? aTargets : undefined));
+    }
+
+    public clean(): Promise<CommandResult | null> {
+        return this.run('clean', p => p.cleanWithResult());
+    }
+
+    /** Runs the given tests, or every test when empty */
+    public ctest(aTests?: string[]): Promise<CommandResult | null> {
+        return this.run('ctest', p => p.ctestWithResult(aTests?.length ? aTests : undefined));
+    }
+
+    public configure(): Promise<CommandResult | null> {
+        return this.run('configure', p => p.configureWithResult());
+    }
+
+    private async run(aLabel: string, aAction: (aProject: Project) => Promise<CommandResult>): Promise<CommandResult | null> {
+        if (!this.m_project) { return null; }
+        try {
+            return await aAction(this.m_project);
+        } catch (err) {
+            console.log(`[CMakeGraph] CMake-Tools ${aLabel} failed:`, err);
+            return { exitCode: -1 };
+        }
     }
 
     private async init(): Promise<void> {

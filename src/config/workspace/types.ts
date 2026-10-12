@@ -12,10 +12,6 @@ export namespace WorkspaceConfig {
         }
     }
     export interface Settings {
-        readonly general: {
-            readonly buildDirectory: string;
-            readonly configType: string;
-        };
         readonly graph: {
             readonly colors: Readonly<Record<string, string>>;
             readonly edges: {

@@ -40,7 +40,7 @@ export class WorkspaceConfigManager implements vscode.Disposable {
     // ---- Write ----
 
     // Update a single setting in .vscode/settings.json.
-    // The key is the flat VS Code setting name (e.g. 'buildDir', 'graphEdgeDirection').
+    // The key is the flat VS Code setting name (e.g. 'graphEdgeDirection').
     async updateSetting(aKey: string, aValue: unknown): Promise<void> {
         await vscode.workspace
             .getConfiguration(CONFIG_SECTION)
@@ -48,31 +48,11 @@ export class WorkspaceConfigManager implements vscode.Disposable {
         // loadConfig() will be triggered automatically by onDidChangeConfiguration
     }
 
-    // ---- Path resolution ----
-
-    resolvePath(aValue: string | undefined): string | null {
-        if (!aValue) { return null; }
-        const ws = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        if (ws) {
-            return aValue.replace(/\$\{workspaceFolder\}/g, ws);
-        }
-        if (aValue.includes('${workspaceFolder}')) { return null; }
-        return aValue;
-    }
-
-    get resolvedBuildDir(): string | null {
-        return this.resolvePath(this._settings.general.buildDirectory);
-    }
-
     // ---- Internal ----
 
     private loadConfig(): void {
         const cfg = vscode.workspace.getConfiguration(CONFIG_SECTION);
         this._settings = {
-            general: {
-                buildDirectory: cfg.get<string>('buildDir', DefaultConfig.general.buildDirectory),
-                configType: cfg.get<string>('configType', DefaultConfig.general.configType),
-            },
             graph: {
                 colors: {
                     ...DefaultConfig.graph.colors,

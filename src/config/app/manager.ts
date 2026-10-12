@@ -47,41 +47,13 @@ export class AppConfigManager implements vscode.Disposable {
         // loadConfig() will be triggered automatically by onDidChangeConfiguration
     }
 
-    // ---- Path resolution ----
-
-    resolvePath(aValue: string | undefined): string | null {
-        if (!aValue) { return null; }
-        const ws = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        if (ws) {
-            return aValue.replace(/\$\{workspaceFolder\}/g, ws);
-        }
-        if (aValue.includes('${workspaceFolder}')) { return null; }
-        return aValue;
-    }
-
-    get resolvedCmakePath(): string {
-        return this.resolvePath(this._settings.cmakePath) || '';
-    }
-
-    get resolvedCtestPath(): string {
-        return this.resolvePath(this._settings.ctestPath) || '';
-    }
-
-    get resolvedCpackPath(): string {
-        return this.resolvePath(this._settings.cpackPath) || '';
-    }
-
     // ---- Internal ----
 
     private loadConfig(): void {
         const cfg = vscode.workspace.getConfiguration(CONFIG_SECTION);
         this._settings = {
-            cmakePath: cfg.get<string>('cmakePath', DefaultConfig.cmakePath),
-            ctestPath: cfg.get<string>('ctestPath', DefaultConfig.ctestPath),
-            cpackPath: cfg.get<string>('cpackPath', DefaultConfig.cpackPath),
             clearOutputBeforeRun: cfg.get<boolean>('clearOutputBeforeRun', DefaultConfig.clearOutputBeforeRun),
             colorizeOutput: cfg.get<boolean>('colorizeOutput', DefaultConfig.colorizeOutput),
-            defaultJobs: cfg.get<number>('defaultJobs', DefaultConfig.defaultJobs),
         };
     }
 }

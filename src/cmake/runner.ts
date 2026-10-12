@@ -126,28 +126,6 @@ export class Runner {
     }
 
     // --------------------------------------------------------
-    // cmake --preset <preset>  OU  cmake -S <src> -B <build>
-    // --------------------------------------------------------
-    async configure(
-        aSourceDir: string | undefined,
-        aBuildDir: string | undefined,
-        aDefs: Record<string, string> = {},
-        aPreset?: string,
-        aCmakePath?: string
-    ): Promise<RunResult> {
-        const cmd = aCmakePath || 'cmake';
-        const args: string[] = [];
-        if (aPreset) {
-            args.push('--preset', aPreset);
-        } else {
-            args.push('-S', aSourceDir!, '-B', aBuildDir!);
-        }
-        for (const [k, v] of Object.entries(aDefs)) { args.push(`-D${k}=${v}`); }
-        const cwd = aSourceDir ?? '.';
-        return this.run(cmd, args, cwd, { diagnosticsSourceDir: cwd });
-    }
-
-    // --------------------------------------------------------
     // cmake -S <src> -B <build> --debugger --debugger-pipe <pipe>
     // --------------------------------------------------------
     async configureWithDebugger(
@@ -186,22 +164,10 @@ export class Runner {
     }
 
     // --------------------------------------------------------
-    // cmake --build --preset <preset>  OU  cmake --build <dir>
+    // cmake --build ... --clean-first
+    // The CMake Tools api has no per target rebuild, so this one
+    // runs the cmake that configured the build folder
     // --------------------------------------------------------
-    async build(
-        aTargets: string[],
-        aCmakePath?: string,
-        aPreset?: string,
-        aFolderDir?: string,
-        aBuildDir?: string,
-        aConfig?: string,
-        aJobs?: number
-    ): Promise<RunResult> {
-        const cmd = aCmakePath || 'cmake';
-        const args = this.getBuildOptions(aTargets, aPreset, aBuildDir, aConfig, aJobs);
-        return this.run(cmd, args, aFolderDir ?? '.');
-    }
-
     async rebuild(
         aTargets: string[],
         aCmakePath?: string,
@@ -217,88 +183,13 @@ export class Runner {
         return this.run(cmd, args, aFolderDir ?? '.');
     }
 
-    async clean(
-        aCmakePath?: string,
-        aPreset?: string,
-        aFolderDir?: string,
-        aBuildDir?: string,
-        aConfig?: string,
-        aJobs?: number
-    ): Promise<RunResult> {
-        const cmd = aCmakePath || 'cmake';
-        const args = this.getBuildOptions(['clean'], aPreset, aBuildDir, undefined, undefined);
-        return this.run(cmd, args, aFolderDir ?? '.');
-    }
-
     // --------------------------------------------------------
-    // ctest
+    // ctest --show-only, the CMake Tools api only gives the names
     // --------------------------------------------------------
-    async test(
-        aBuildDir: string | undefined,
-        aConfig?: string,
-        aPreset?: string,
-        aCtestPath?: string,
-        aJobs?: number
-    ): Promise<RunResult> {
-        const cmd = aCtestPath || 'ctest';
-        const args: string[] = [];
-        if (aPreset) {
-            args.push('--preset', aPreset);
-        } else {
-            args.push('--test-dir', aBuildDir!);
-            if (aConfig) { args.push('-C', aConfig); }
-        }
-        if (aJobs && aJobs > 0) { args.push('-j', String(aJobs)); }
-        return this.run(cmd, args, aBuildDir ?? '.');
-    }
-
-    async testFiltered(
-        aBuildDir: string,
-        aTestName: string,
-        aConfig?: string,
-        aCtestPath?: string,
-        aJobs?: number
-    ): Promise<RunResult> {
-        const cmd = aCtestPath || 'ctest';
-        const args = ['--test-dir', aBuildDir, '-R', `^${aTestName}$`];
-        if (aConfig) { args.push('-C', aConfig); }
-        if (aJobs && aJobs > 0) { args.push('-j', String(aJobs)); }
-        return this.run(cmd, args, aBuildDir);
-    }
-
-    /**
-     * Run ctest with a regex filter and --no-tests=ignore.
-     * Used by Impacted Targets to test executables by name pattern,
-     * silently ignoring targets that are not actual CTest tests.
-     */
-    async testByRegex(
-        aBuildDir: string,
-        aRegex: string,
-        aConfig?: string,
-        aCtestPath?: string,
-        aJobs?: number
-    ): Promise<RunResult> {
-        const cmd = aCtestPath || 'ctest';
-        const args = ['--test-dir', aBuildDir, '-R', aRegex, '--no-tests=ignore'];
-        if (aConfig) { args.push('-C', aConfig); }
-        if (aJobs && aJobs > 0) { args.push('-j', String(aJobs)); }
-        return this.run(cmd, args, aBuildDir);
-    }
-
     async listTests(aBuildDir: string, aCtestPath?: string): Promise<RunResult> {
         const cmd = aCtestPath || 'ctest';
         const args = ['--test-dir', aBuildDir, '--show-only=json-v1'];
         return this.run(cmd, args, aBuildDir, { silent: true });
-    }
-
-    async listTestsWithPreset(
-        aPreset: string,
-        aSourceDir: string,
-        aCtestPath?: string
-    ): Promise<RunResult> {
-        const cmd = aCtestPath || 'ctest';
-        const args = ['--preset', aPreset, '--show-only=json-v1'];
-        return this.run(cmd, args, aSourceDir, { silent: true });
     }
 
     // --------------------------------------------------------

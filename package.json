@@ -1,8 +1,8 @@
 {
   "name": "cmakegraph",
-  "displayName": "Cmake Graph",
+  "displayName": "CMake Graph",
   "description": "CMake dependency explorer",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "aiekick",
   "engines": {
     "vscode": "^1.80.0"
@@ -20,6 +20,9 @@
   "categories": [
     "Other"
   ],
+  "extensionDependencies": [
+    "ms-vscode.cmake-tools"
+  ],
   "activationEvents": [
     "workspaceContains:**/CMakeLists.txt",
     "onLanguage:cmake"
@@ -28,35 +31,10 @@
     "configuration": {
       "title": "Cmake Graph",
       "properties": {
-        "CMakeGraph.buildDir": {
-          "type": "string",
-          "default": "${workspaceFolder}/build",
-          "description": "Path to the CMake build folder"
-        },
-        "CMakeGraph.cmakePath": {
-          "type": "string",
-          "default": "cmake",
-          "description": "Path to the cmake executable"
-        },
-        "CMakeGraph.ctestPath": {
-          "type": "string",
-          "default": "ctest",
-          "description": "Path to the ctest executable"
-        },
-        "CMakeGraph.cpackPath": {
-          "type": "string",
-          "default": "cpack",
-          "description": "Path to the cpack executable"
-        },
         "CMakeGraph.clearOutputBeforeRun": {
           "type": "boolean",
           "default": true,
           "description": "Clear output before each CMake command"
-        },
-        "CMakeGraph.defaultJobs": {
-          "type": "integer",
-          "default": 0,
-          "description": "Default number of jobs (0 = let CMake/CTest decide)"
         },
         "CMakeGraph.colorizeOutput": {
           "type": "boolean",
@@ -205,12 +183,6 @@
         "title": "Cancel running task",
         "category": "CMake",
         "icon": "$(stop-circle)"
-      },
-      {
-        "command": "CMakeGraph.selectBuildDir",
-        "title": "Select build folder",
-        "category": "CMake",
-        "icon": "$(folder-opened)"
       },
       {
         "command": "CMakeGraph.selectConfig",
@@ -481,11 +453,6 @@
       ],
       "view/title": [
         {
-          "command": "CMakeGraph.selectBuildDir",
-          "when": "view == CMakeGraphOutline",
-          "group": "navigation@1"
-        },
-        {
           "command": "CMakeGraph.selectConfig",
           "when": "view == CMakeGraphOutline && CMakeGraph.multiConfig",
           "group": "navigation@2"
@@ -521,11 +488,6 @@
           "group": "navigation@8"
         },
         {
-          "command": "CMakeGraph.selectBuildDir",
-          "when": "view == CMakeGraphConfig",
-          "group": "navigation@1"
-        },
-        {
           "command": "CMakeGraph.selectConfig",
           "when": "view == CMakeGraphConfig && CMakeGraph.multiConfig",
           "group": "navigation@2"
@@ -559,11 +521,6 @@
           "command": "CMakeGraph.openSettings",
           "when": "view == CMakeGraphConfig",
           "group": "navigation@8"
-        },
-        {
-          "command": "CMakeGraph.selectBuildDir",
-          "when": "view == CMakeGraphImpacted",
-          "group": "navigation@1"
         },
         {
           "command": "CMakeGraph.selectConfig",

@@ -3,10 +3,6 @@ import { WorkspaceConfig as WorkspaceTypes } from './types';
 // Default values for workspace (per-project) settings
 // Aligned with package.json "contributes.configuration.properties"
 export const WorkspaceConfigDefault: WorkspaceTypes.Settings = {
-    general: {
-        buildDirectory: '${workspaceFolder}/build',
-        configType: 'Release',
-    },
     graph: {
         colors: {
             EXECUTABLE: '#7f5be3',

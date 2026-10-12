@@ -124,7 +124,9 @@ All CMake and CTest output is shown in a dedicated **CMakeGraph** output channel
 
 ### CMake Tools Integration
 
-CMakeGraph can work alongside the official CMake Tools extension. When CMake Tools triggers a configure, CMakeGraph automatically picks up the new build directory and build type, refreshing all panels with the latest project data.
+CMakeGraph runs on top of the official CMake Tools extension, which it requires. When CMake Tools triggers a configure, CMakeGraph picks up the new build directory and build type, refreshing all panels with the latest project data.
+
+Build, clean, tests and the reconfigure after a cache edit go through the CMake Tools API, so the selected kit or preset and its environment apply. The per target *Rebuild* is the exception, the API having no equivalent: it runs `cmake --build ... --clean-first` with the cmake that configured the build folder (`CMAKE_COMMAND` in the cache), and `cmake.parallelJobs` for the parallelism.
 
 ### Task Management
 
@@ -136,7 +138,7 @@ CMakeGraph can work alongside the official CMake Tools extension. When CMake Too
 
 1. **Install the extension** from the `.vsix` file or the marketplace.
 2. **Open a CMake project** in VS Code.
-3. Set the **build folder** via the command palette or let the extension auto-detect it.
+3. Select a kit or a preset and configure the project with **CMake Tools**.
 4. Once the build directory contains CMake reply files (after a configure), all panels update automatically.
 
 ## Keyboard Shortcuts
@@ -152,14 +154,7 @@ All settings are under the `CMakeGraph` prefix.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `sourceDir` | `${workspaceFolder}` | Path to the CMake source directory |
-| `buildDir` | `${workspaceFolder}/build` | Path to the CMake build directory |
-| `cmakePath` | `cmake` | Path to the cmake executable |
-| `ctestPath` | `ctest` | Path to the ctest executable |
-| `cpackPath` | `cpack` | Path to the cpack executable |
 | `clearOutputBeforeRun` | `true` | Clear the output panel before each CMake command |
-| `showJobsOption` | `false` | Show the Jobs (parallelism) row in Build and Test sections |
-| `defaultJobs` | `0` | Default number of parallel jobs (`0` = let CMake/CTest decide) |
 | `colorizeOutput` | `true` | Enable syntax highlighting in the output panel |
 | `graphEdgeDirection` | `dependency` | Edge arrow direction: `dependency` (child-to-parent) or `inverse` (parent-to-child) |
 | `graphEdgeStyle` | `tapered` | Edge rendering style: `tapered`, `chevrons`, or `line` |
@@ -169,7 +164,7 @@ All settings are under the `CMakeGraph` prefix.
 | `graphMinimap` | `true` | Show the minimap overlay |
 | `graphSettingsVisible` | `false` | Whether the settings panel is open |
 
-The `${workspaceFolder}` variable is supported and resolved automatically in path settings.
+The build folder, the kit or preset, and the cmake / ctest executables all come from CMake Tools, CMakeGraph has no setting of its own for them.
 
 ## How It Works
 
@@ -184,6 +179,7 @@ This approach means CMakeGraph works with any CMake project, regardless of compl
 ## Requirements
 
 - VS Code >= 1.80.0
+- The [CMake Tools](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cmake-tools) extension
 - CMake >= 3.14 (File-Based API support)
 - CTest (bundled with CMake, used for test discovery)
 

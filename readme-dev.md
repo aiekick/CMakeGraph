@@ -82,7 +82,7 @@ CMakeGraph/
     extension.ts                          Main entry point (activate / deactivate)
     cmake/
       api_client.ts                       CMake File-Based API reader
-      runner.ts                           cmake / ctest / cpack process execution
+      runner.ts                           cmake / ctest process execution
       types.ts                            TypeScript interfaces for CMake API JSON
       kit_scanner.ts                      Compiler detection (MSVC, GCC, Clang)
       msvc_env.ts                         Windows MSVC environment injection
@@ -140,9 +140,11 @@ CMake File-Based API
 
 ### CMake Tools Integration (`misc/cmake_tools_api.ts`)
 
-`CMakeToolsIntegrationManager` listens for configure events from the official CMake Tools extension (if installed). When CMake Tools finishes a configure, CMakeGraph receives the build directory and build type, then calls `initBuildDir()` and `updateAllPanesWithConfig()` to refresh all panels automatically.
+`CMakeToolsIntegrationManager` listens for configure events from the official CMake Tools extension, a required dependency. When CMake Tools finishes a configure, CMakeGraph receives the build directory and build type, then calls `initBuildDir()` and `updateAllPanesWithConfig()` to refresh all panels automatically.
 
 The manager handles reconnection when workspace folders change or when CMake Tools is activated after CMakeGraph.
+
+It also carries the actions delegated to CMake Tools: `build()`, `clean()`, `ctest()` and `configure()`. The `Runner` only keeps what the API does not cover: the per target rebuild (`--clean-first`), `ctest --show-only=json-v1` for the test discovery, and the CMake debugger. Those use the `CMAKE_COMMAND` and `CMAKE_CTEST_COMMAND` entries of the cache, so the executables CMake Tools configured with.
 
 ### CMake File-Based API Integration (`api_client.ts`)
 
@@ -164,7 +166,7 @@ A `vscode.FileSystemWatcher` monitors `.cmake/api/v1/reply/index-*.json`. When a
 
 ### Runner (`runner.ts`)
 
-Executes cmake, ctest and cpack as child processes:
+Executes cmake and ctest as child processes, for what the CMake Tools API does not cover:
 
 - **Output**: streams stdout/stderr to a dedicated output channel (with optional TextMate colorization)
 - **MSVC environment**: on Windows, resolves `vcvarsall.bat` automatically (from selected kit or auto-detected) and injects the environment variables into spawned processes
@@ -176,13 +178,9 @@ Key methods:
 
 | Method | Description |
 |--------|-------------|
-| `configure()` | `cmake --preset <p>` or `cmake -S <src> -B <build> -D...` |
-| `build()` | `cmake --build --preset <p>` or `cmake --build <dir> --target <t>` |
-| `buildTargets()` | Multi-target build (`--target A --target B`) |
-| `cleanAndBuildTarget()` | `cmake --build <dir> --target <t> --clean-first` |
-| `test()` | `ctest --preset <p>` or `ctest --test-dir <dir>` |
-| `testFiltered()` | `ctest --test-dir <dir> -R ^<name>$` |
-| `testByRegex()` | `ctest --test-dir <dir> -R <regex> --no-tests=ignore` |
+| `exec()` | Silent run, used for `cmake -E capabilities` |
+| `configureWithDebugger()` | `cmake -S <src> -B <build> --debugger --debugger-pipe <pipe>` |
+| `rebuild()` | `cmake --build --preset <p>` or `cmake --build <dir>`, with `--target <t>... --clean-first` |
 | `listTests()` | `ctest --test-dir <dir> --show-only=json-v1` (silent) |
 
 ### Diagnostics Manager (`cmake_diagnostics_manager.ts`)

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as os from 'os';
 import { ApiClient, CmakeReply } from './cmake/api_client';
 import { Runner } from './cmake/runner';
 import { ReplyWatcher } from './watchers/reply_watcher';
@@ -11,6 +12,7 @@ import { CMakeFileDecorationProvider } from './providers/decoration_provider';
 import { ImpactedTargetsProvider } from './providers/impacted_provider';
 import { DependencyGraphProvider } from './providers/graph_provider';
 import { CMakeToolsIntegrationManager } from './cmake/cmake_tools_api';
+import { CommandResult } from 'vscode-cmake-tools';
 import { CMAKE_DEBUG_TYPE, CMakeDebugAdapterFactory, getDebuggerPipeName } from './cmake/cmake_debugger';
 import { computeDirectLinks } from './cmake/direct_links_converter';
 import { debugDirectLinks, debugMissingLinks, debugSignatures } from './cmake/debug_direct_links';
@@ -30,6 +32,7 @@ interface CtestInfo {
 // Global State
 // ------------------------------------------------------------
 let runner: Runner | null = null;
+let cmake_manager: CMakeToolsIntegrationManager | null = null;
 let api_client: ApiClient | null = null;
 let reply_watcher: ReplyWatcher | null = null;
 let outline_provider: ProjectOutlineProvider | null = null;
@@ -48,7 +51,6 @@ let available_configs: string[] = [];
 let task_status_bar: vscode.StatusBarItem | null = null;
 let ws_state: vscode.Memento | null = null;
 
-const BUILD_DIR_STATE_KEY = 'CMakeGraph.buildDir';
 const ACTIVE_CONFIG_STATE_KEY = 'CMakeGraph.activeConfig';
 const ACTIVE_BUILD_PRESET_KEY = 'CMakeGraph.activeBuildPreset';
 
@@ -129,7 +131,6 @@ export async function activate(aContext: vscode.ExtensionContext): Promise<void>
 
     const cmds: [string, (...args: unknown[]) => unknown][] = [
         ['CMakeGraph.cancelTask', () => cmdCancelTask()],
-        ['CMakeGraph.selectBuildDir', () => cmdSelectBuildDir(aContext)],
         ['CMakeGraph.selectConfig', cmdSelectConfig],
         ['CMakeGraph.build', cmdBuild],
         ['CMakeGraph.buildTarget', cmdBuildTarget],
@@ -181,11 +182,11 @@ export async function activate(aContext: vscode.ExtensionContext): Promise<void>
         CMAKE_DEBUG_TYPE,
         new CMakeDebugAdapterFactory((aPipeName, aOnOutput) => {
             const src = last_reply?.codemodel.paths?.source || folder_dir || build_dir!;
-            return runner!.configureWithDebugger(src, build_dir!, aPipeName, aOnOutput, getCmakePath());
+            return runner!.configureWithDebugger(src, build_dir!, aPipeName, aOnOutput, getCmakePath()!);
         })
     ));
 
-    const cmake_manager = new CMakeToolsIntegrationManager((aFolderDir, aBuildDir, aBuildType, aBuildPreset) => {
+    cmake_manager = new CMakeToolsIntegrationManager((aFolderDir, aBuildDir, aBuildType, aBuildPreset) => {
         folder_dir = aFolderDir;
         initBuildDir(aBuildDir, aContext);
         updateAllPanesWithConfig(aBuildType);
@@ -207,14 +208,6 @@ export async function activate(aContext: vscode.ExtensionContext): Promise<void>
 
     // Restore persisted build_preset
     current_build_preset = ws_state.get<string>(ACTIVE_BUILD_PRESET_KEY) || '';
-
-    // ── Initialize buildDir ──
-    const saved_build = wksConfigManager.resolvedBuildDir
-        || ws_state.get<string>(BUILD_DIR_STATE_KEY)
-        || null;
-    if (saved_build) {
-        await initBuildDir(saved_build, aContext);
-    }
 }
 
 // ------------------------------------------------------------
@@ -230,7 +223,6 @@ export function deactivate(): void {
 async function initBuildDir(aBuildDir: string, aContext: vscode.ExtensionContext): Promise<void> {
     reply_watcher?.dispose();
     build_dir = aBuildDir;
-    ws_state?.update(BUILD_DIR_STATE_KEY, aBuildDir);
     api_client = new ApiClient(aBuildDir);
 
     await api_client.writeQueries();
@@ -354,44 +346,42 @@ async function setCurrentBuildPreset(aBuildPreset: string) {
 // Commands — actions
 // ------------------------------------------------------------
 
-async function cmdSelectBuildDir(aContext: vscode.ExtensionContext): Promise<void> {
-    const folders = await vscode.window.showOpenDialog({
-        canSelectFolders: true, canSelectFiles: false, canSelectMany: false,
-        openLabel: 'Select build folder',
-    });
-    if (!folders?.length) { return; }
-    const dir = folders[0].fsPath;
-    await wksConfigManager.updateSetting('buildDir', dir);
-    await initBuildDir(dir, aContext);
+/** Value of a cache entry, as seen by the last reply */
+function getCacheValue(aName: string): string | null {
+    return last_reply?.cache.find(e => e.name === aName)?.value || null;
 }
 
-function getCmakePath(): string {
-    return appConfigManager.resolvedCmakePath;
+/** The cmake that configured the build folder, so the one CMake Tools uses */
+function getCmakePath(): string | null {
+    return getCacheValue('CMAKE_COMMAND');
 }
 
-function getCtestPath(): string {
-    return appConfigManager.resolvedCtestPath;
+function getCtestPath(): string | null {
+    return getCacheValue('CMAKE_CTEST_COMMAND');
 }
 
-function getDefaultJobs(): number {
-    return appConfigManager.settings.defaultJobs;
+/** Same rule as CMake Tools: cmake.parallelJobs, or one job per core when 0 */
+function getJobs(): number {
+    const jobs = vscode.workspace.getConfiguration('cmake').get<number>('parallelJobs', 0);
+    return jobs > 0 ? jobs : os.cpus().length;
+}
+
+/** Reports the failure of an action delegated to CMake Tools */
+function checkCMakeToolsResult(aResult: CommandResult | null, aWhat: string): void {
+    if (!aResult) {
+        vscode.window.showWarningMessage('CMakeGraph: CMake Tools has no project for this workspace.');
+    } else if (aResult.exitCode !== 0) {
+        vscode.window.showErrorMessage(`CMakeGraph: ${aWhat} failed (code ${aResult.exitCode})`);
+    }
 }
 
 async function cmdBuild(): Promise<void> {
-    if (!runner || !build_dir || !folder_dir) {
-        vscode.window.showWarningMessage('CMakeGraph: select a build folder first.');
-        return;
-    }
-    const cmake_path = getCmakePath();
-    const jobs = getDefaultJobs();
-    const result = await runner.build([], cmake_path, current_build_preset, folder_dir, build_dir, current_config, jobs);
-    if (!result.success && !result.cancelled) {
-        vscode.window.showErrorMessage(`CMakeGraph: build failed (code ${result.code})`);
-    }
+    if (!cmake_manager) { return; }
+    checkCMakeToolsResult(await cmake_manager.build(), 'build');
 }
 
 async function cmdBuildTarget(aNode?: unknown): Promise<void> {
-    if (!runner || !build_dir || !folder_dir) { return; }
+    if (!cmake_manager) { return; }
     let target_name: string | undefined;
     if (aNode && typeof aNode === 'object' && 'kind' in aNode) {
         const kind = (aNode as { kind: string }).kind;
@@ -403,12 +393,7 @@ async function cmdBuildTarget(aNode?: unknown): Promise<void> {
         target_name = await pickTarget();
     }
     if (!target_name) { return; }
-    const cmake_path = getCmakePath();
-    const jobs = getDefaultJobs();
-    const result = await runner.build([target_name], cmake_path, current_build_preset, folder_dir, build_dir, current_config, jobs);
-    if (!result.success && !result.cancelled) {
-        vscode.window.showErrorMessage(`CMakeGraph: build of '${target_name}' failed (code ${result.code})`);
-    }
+    checkCMakeToolsResult(await cmake_manager.build([target_name]), `build of '${target_name}'`);
 }
 
 async function cmdRebuildTarget(aNode?: unknown): Promise<void> {
@@ -425,23 +410,18 @@ async function cmdRebuildTarget(aNode?: unknown): Promise<void> {
     }
     if (!target_name) { return; }
     const cmake_path = getCmakePath();
-    const jobs = getDefaultJobs();
-    const result = await runner.rebuild([target_name], cmake_path, current_build_preset, folder_dir, build_dir, current_config, jobs);
+    if (!cmake_path) { warnNotConfigured(); return; }
+    const result = await runner.rebuild([target_name], cmake_path, current_build_preset, folder_dir, build_dir, current_config, getJobs());
     if (!result.success && !result.cancelled) {
         vscode.window.showErrorMessage(`CMakeGraph: rebuild of '${target_name}' failed (code ${result.code})`);
     }
 }
 
 async function cmdBuildImpactedSection(aNode?: unknown): Promise<void> {
-    if (!runner || !build_dir || !folder_dir) { return; }
+    if (!cmake_manager) { return; }
     const targets = extractSectionTargetNames(aNode);
     if (!targets.length) { return; }
-    const cmake_path = getCmakePath();
-    const jobs = getDefaultJobs();
-    const result = await runner.build(targets, cmake_path, current_build_preset, folder_dir, build_dir, current_config, jobs);
-    if (!result.success && !result.cancelled) {
-        vscode.window.showErrorMessage(`CMakeGraph: build of section failed (code ${result.code})`);
-    }
+    checkCMakeToolsResult(await cmake_manager.build(targets), 'build of section');
 }
 
 async function cmdRebuildImpactedSection(aNode?: unknown): Promise<void> {
@@ -449,11 +429,15 @@ async function cmdRebuildImpactedSection(aNode?: unknown): Promise<void> {
     const targets = extractSectionTargetNames(aNode);
     if (!targets.length) { return; }
     const cmake_path = getCmakePath();
-    const jobs = getDefaultJobs();
-    const result = await runner.rebuild(targets, cmake_path, current_build_preset, folder_dir, build_dir, current_config, jobs);
+    if (!cmake_path) { warnNotConfigured(); return; }
+    const result = await runner.rebuild(targets, cmake_path, current_build_preset, folder_dir, build_dir, current_config, getJobs());
     if (!result.success && !result.cancelled) {
         vscode.window.showErrorMessage(`CMakeGraph: rebuild of section failed (code ${result.code})`);
     }
+}
+
+function warnNotConfigured(): void {
+    vscode.window.showWarningMessage('CMakeGraph: the project is not configured yet, configure it with CMake Tools first.');
 }
 
 function extractSectionTargetNames(aNode: unknown): string[] {
@@ -509,36 +493,38 @@ async function cmdClearFilterImpacted(): Promise<void> {
 // ------------------------------------------------------------
 
 async function cmdTestImpactedTarget(aNode?: unknown): Promise<void> {
-    if (!runner || !build_dir) { return; }
+    if (!cmake_manager) { return; }
     if (!aNode || typeof aNode !== 'object' || !('kind' in aNode)) { return; }
     if ((aNode as { kind: string }).kind !== 'impactedTarget') { return; }
     const target_name = (aNode as unknown as { target: { name: string } }).target.name;
-    const ctest_path = getCtestPath();
-    const jobs = getDefaultJobs();
     const regex = impacted_provider?.isTestTarget(target_name)
         ? impacted_provider.getTestRegex(target_name)
         : escapeRegex(target_name);
-    const result = await runner.testByRegex(build_dir, regex, current_config || undefined, ctest_path, jobs);
-    if (!result.success && !result.cancelled) {
-        vscode.window.showErrorMessage(`CMakeGraph: test '${target_name}' failed (code ${result.code})`);
-    }
+    await runTestsMatching(regex, `test '${target_name}'`);
 }
 
 async function cmdTestImpactedSection(aNode?: unknown): Promise<void> {
-    if (!runner || !build_dir) { return; }
+    if (!cmake_manager) { return; }
     if (!aNode || typeof aNode !== 'object') { return; }
     const section_id = (aNode as { sectionId?: string }).sectionId;
     const targets = extractSectionTargetNames(aNode);
     if (!targets.length) { return; }
-    const ctest_path = getCtestPath();
-    const jobs = getDefaultJobs();
     const regex = section_id === 'tests' && impacted_provider
         ? impacted_provider.getTestSectionRegex(targets)
         : targets.map(n => escapeRegex(n)).join('|');
-    const result = await runner.testByRegex(build_dir, regex, current_config || undefined, ctest_path, jobs);
-    if (!result.success && !result.cancelled) {
-        vscode.window.showErrorMessage(`CMakeGraph: tests failed (code ${result.code})`);
-    }
+    await runTestsMatching(regex, 'tests');
+}
+
+/**
+ * Runs through CMake Tools the known tests whose name matches aRegex,
+ * the way ctest -R would. Targets with no test are silently skipped.
+ */
+async function runTestsMatching(aRegex: string, aWhat: string): Promise<void> {
+    if (!cmake_manager) { return; }
+    const re = new RegExp(aRegex);
+    const names = available_tests.map(t => t.name).filter(n => re.test(n));
+    if (!names.length) { return; }
+    checkCMakeToolsResult(await cmake_manager.ctest(names), aWhat);
 }
 
 
@@ -601,8 +587,10 @@ async function cmdConfigureWithDebugger(): Promise<void> {
         vscode.window.showWarningMessage('CMakeGraph: no build directory. Select one first.');
         return;
     }
+    const cmake_path = getCmakePath();
+    if (!cmake_path) { warnNotConfigured(); return; }
     // --debugger is silently ignored by cmake < 3.27, so check the capabilities first
-    const caps = await runner.exec(getCmakePath(), ['-E', 'capabilities'], build_dir);
+    const caps = await runner.exec(cmake_path, ['-E', 'capabilities'], build_dir);
     let supported = false;
     try { supported = caps.success && JSON.parse(caps.stdout).debugger === true; } catch { /* old cmake */ }
     if (!supported) {
@@ -618,8 +606,8 @@ async function cmdConfigureWithDebugger(): Promise<void> {
 }
 
 async function cmdClean(): Promise<void> {
-    if (!runner || !build_dir) { return; }
-    await runner.clean(build_dir);
+    if (!cmake_manager) { return; }
+    checkCMakeToolsResult(await cmake_manager.clean(), 'clean');
 }
 
 // ------------------------------------------------------------
@@ -629,9 +617,9 @@ async function cmdClean(): Promise<void> {
 let available_tests: CtestInfo[] = [];
 
 async function refreshAvailableTests(): Promise<void> {
-    if (!runner || !build_dir) { available_tests = []; return; }
-
     const ctest_path = getCtestPath();
+    if (!runner || !build_dir || !ctest_path) { available_tests = []; return; }
+
     const result = await runner.listTests(build_dir, ctest_path);
 
     if (!result.success) {
@@ -683,16 +671,8 @@ async function refreshAvailableTests(): Promise<void> {
 }
 
 async function cmdTest(): Promise<void> {
-    if (!runner || !build_dir) {
-        vscode.window.showWarningMessage('CMakeGraph: select a build folder first.');
-        return;
-    }
-    const ctest_path = getCtestPath();
-    const jobs = getDefaultJobs();
-    const result = await runner.test(build_dir, current_config || undefined, undefined, ctest_path, jobs);
-    if (!result.success && !result.cancelled) {
-        vscode.window.showErrorMessage(`CMakeGraph: test failed (code ${result.code})`);
-    }
+    if (!cmake_manager) { return; }
+    checkCMakeToolsResult(await cmake_manager.ctest(), 'test');
 }
 
 async function cmdCancelTask(): Promise<void> {
@@ -737,12 +717,9 @@ async function cmdOpenSettings(): Promise<void> {
 }
 
 /**
- * Switch between two cache-edit strategies:
- *  - false : write directly into CMakeCache.txt (no reconfigure)
- *  - true  : run cmake -D to reconfigure (classic behaviour)
+ * Patches CMakeCache.txt then lets CMake Tools reconfigure, so the
+ * kit, the presets and the environment it knows are honoured.
  */
-const EDIT_CACHE_VIA_CONFIGURE = true;
-
 async function cmdEditCacheEntry(aEntry: CacheEntry): Promise<void> {
     if (!build_dir) { return; }
     let new_value: string | undefined;
@@ -765,41 +742,28 @@ async function cmdEditCacheEntry(aEntry: CacheEntry): Promise<void> {
     }
     if (new_value === undefined || new_value === aEntry.value) { return; }
 
-    if (EDIT_CACHE_VIA_CONFIGURE) {
-        // ── Strategy A: reconfigure with cmake -D ──
-        if (!runner) { return; }
-        const src = last_reply?.codemodel.paths?.source || build_dir;
-        const result = await runner.configure(src, build_dir, { [aEntry.name]: new_value });
-        if (!result.success && !result.cancelled) {
-            vscode.window.showErrorMessage(`CMakeGraph: reconfigure failed after modifying ${aEntry.name}`);
+    const cache_path = path.join(build_dir, 'CMakeCache.txt');
+    try {
+        const fs_p = await import('fs/promises');
+        const content = await fs_p.readFile(cache_path, 'utf-8');
+        // Match the line:  NAME:TYPE=VALUE
+        const regex = new RegExp(`^(${escapeRegex(aEntry.name)}:${escapeRegex(aEntry.type)}=)(.*)$`, 'm');
+        if (!regex.test(content)) {
+            vscode.window.showWarningMessage(`CMakeGraph: entry ${aEntry.name} not found in CMakeCache.txt`);
+            return;
         }
-    } else {
-        // ── Strategy B: patch CMakeCache.txt directly ──
-        const cache_path = path.join(build_dir, 'CMakeCache.txt');
-        try {
-            const fs_p = await import('fs/promises');
-            const content = await fs_p.readFile(cache_path, 'utf-8');
-            // Match the line:  NAME:TYPE=VALUE
-            const regex = new RegExp(`^(${escapeRegex(aEntry.name)}:${escapeRegex(aEntry.type)}=)(.*)$`, 'm');
-            if (!regex.test(content)) {
-                vscode.window.showWarningMessage(`CMakeGraph: entry ${aEntry.name} not found in CMakeCache.txt`);
-                return;
-            }
-            const updated = content.replace(regex, `$1${new_value}`);
-            await fs_p.writeFile(cache_path, updated, 'utf-8');
-            vscode.window.showInformationMessage(`CMakeGraph: ${aEntry.name} set to ${new_value}`);
-
-            // Update in-memory cache and refresh the config pane
-            aEntry.value = new_value;
-            if (last_reply) {
-                config_provider!.refresh(last_reply.cache);
-            }
-        } catch (err) {
-            vscode.window.showErrorMessage(
-                `CMakeGraph: failed to update CMakeCache.txt — ${(err as Error).message}`
-            );
-        }
+        // A function keeps the "$&", "$1"... of the value literal
+        const updated = content.replace(regex, (_aMatch, aPrefix: string) => `${aPrefix}${new_value}`);
+        await fs_p.writeFile(cache_path, updated, 'utf-8');
+    } catch (err) {
+        vscode.window.showErrorMessage(
+            `CMakeGraph: failed to update CMakeCache.txt — ${(err as Error).message}`
+        );
+        return;
     }
+
+    if (!cmake_manager) { return; }
+    checkCMakeToolsResult(await cmake_manager.configure(), `reconfigure after modifying ${aEntry.name}`);
 }
 
 async function cmdFilterConfig(): Promise<void> {
