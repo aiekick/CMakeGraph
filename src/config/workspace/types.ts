@@ -36,6 +36,7 @@ export namespace WorkspaceConfig {
                     readonly simEnabled: boolean;
                     readonly settingsCollapse: Record<string, boolean>;
                     readonly settingsVisible: boolean;
+                    readonly mode3d: boolean;
                 };
             };
         };

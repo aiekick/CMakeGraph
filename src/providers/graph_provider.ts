@@ -194,6 +194,7 @@ export class DependencyGraphProvider implements vscode.CustomReadonlyEditorProvi
             simEnabled: sets.graph.simulation.controls.simEnabled,
             settingsCollapse: sets.graph.simulation.controls.settingsCollapse,
             settingsVisible: sets.graph.simulation.controls.settingsVisible,
+            mode3d: sets.graph.simulation.controls.mode3d,
         };
 
         const defs = WorkspaceConfigDefault.graph;
@@ -212,6 +213,7 @@ export class DependencyGraphProvider implements vscode.CustomReadonlyEditorProvi
             minimap: defs.simulation.controls.minimap,
             autoPauseDrag: defs.simulation.controls.autoPauseDrag,
             simEnabled: defs.simulation.controls.simEnabled,
+            mode3d: defs.simulation.controls.mode3d,
             nodeColors: defs.colors,
         };
 

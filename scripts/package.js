@@ -108,7 +108,8 @@ const filesToInclude = [
 const foldersToInclude = [
     'medias',
     'out',
-    'syntaxes'
+    'syntaxes',
+    'doc'
 ];
 
 // Ajoutez les fichiers individuels

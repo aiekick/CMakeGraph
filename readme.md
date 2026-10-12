@@ -15,7 +15,13 @@ CMakeGraph takes a different approach from other CMake extensions: instead of pa
 
 An interactive force-directed graph that visualizes CMake target dependencies. The graph opens as an **editor tab** (not a sidebar panel), so it can be moved to another editor group or even another screen.
 
-![graph-demo](https://github.com/aiekick/CMakeGraph/blob/master/doc/graph-demo.gif)
+#### 2D
+![graph-demo](doc/graph-2d.png)
+
+#### 3D
+![graph-demo](doc/graph-3d.png)
+
+#### Features :
 
 - **Open the graph** from the outline: click the graph icon on the project item for the full graph, or on any target (except UTILITY) for a focused sub-graph
 - **Canvas-based rendering** with pan (click & drag background) and zoom (mouse wheel)
@@ -49,6 +55,8 @@ An interactive force-directed graph that visualizes CMake target dependencies. T
 
 A tree view of your project structure based on the CMake codemodel:
 
+![outline](doc/outline.png)
+
 - Targets grouped by CMake folder structure (`set_property(GLOBAL PROPERTY USE_FOLDERS ON)`)
 - Source files organized by source groups or directory structure
 - Click any source file to open it in the editor
@@ -66,22 +74,11 @@ A tree view of your project structure based on the CMake codemodel:
 - Copy individual items or entire sections to the clipboard via right-click menu
 - Filter by target name or type
 
-### Configuration Panel
-
-Browse and edit CMake cache variables:
-
-![configuration-demo](https://github.com/aiekick/CMakeGraph/blob/master/doc/configuration-demo.gif)
-
-- Variables grouped by prefix (`CMAKE_`, `BUILD_`, etc.)
-- Inline editing: booleans show ON/OFF picker, strings with `STRINGS` property show a dropdown, others show an input box
-- Editing a variable triggers an automatic reconfigure with `-D`
-- Filter by name, value, or help string
-
 ### Impacted Targets
 
 Shows which targets are affected when the file you are currently editing changes.
 
-![impacted-targets](https://github.com/aiekick/CMakeGraph/blob/master/doc/impacted-targets.gif)
+![impacted-targets](doc/impacted-targets.png)
 
 - **Transitive dependency resolution**: if you edit a file in `libA`, and `libB` depends on `libA` while `app` depends on `libB`, all three targets appear
 - Direct targets are shown normally; transitive ones are marked *(transitive)*
@@ -126,7 +123,7 @@ All CMake and CTest output is shown in a dedicated **CMakeGraph** output channel
 
 CMakeGraph runs on top of the official CMake Tools extension, which it requires. When CMake Tools triggers a configure, CMakeGraph picks up the new build directory and build type, refreshing all panels with the latest project data.
 
-Build, clean, tests and the reconfigure after a cache edit go through the CMake Tools API, so the selected kit or preset and its environment apply. The per target *Rebuild* is the exception, the API having no equivalent: it runs `cmake --build ... --clean-first` with the cmake that configured the build folder (`CMAKE_COMMAND` in the cache), and `cmake.parallelJobs` for the parallelism.
+Build, clean and tests go through the CMake Tools API, so the selected kit or preset and its environment apply. The per target *Rebuild* is the exception, the API having no equivalent: it runs `cmake --build ... --clean-first` with the cmake that configured the build folder (`CMAKE_COMMAND` in the cache), and `cmake.parallelJobs` for the parallelism.
 
 ### Task Management
 
@@ -171,7 +168,7 @@ The build folder, the kit or preset, and the cmake / ctest executables all come 
 1. **Query files** are written to `.cmake/api/v1/query/` in the build directory
 2. When you run **Configure**, CMake generates reply files in `.cmake/api/v1/reply/`
 3. A **file watcher** detects new `index-*.json` files and triggers a reload
-4. CMakeGraph reads the **codemodel**, **cache**, **cmakeFiles**, and **toolchains** replies
+4. CMakeGraph reads the **codemodel**, **cmakeFiles**, and **toolchains** replies
 5. All panels update with accurate project information straight from CMake
 
 This approach means CMakeGraph works with any CMake project, regardless of complexity -- custom functions, generator expressions, FetchContent, ExternalProject, toolchain files -- everything is supported because CMake itself does the heavy lifting.
@@ -186,3 +183,12 @@ This approach means CMakeGraph works with any CMake project, regardless of compl
 ## License
 
 MIT -- see [LICENSE](LICENSE) for details.
+
+## Changelog
+
+* v0.0.1 : First version
+* v0.0.2 : Fix issues regarding switch between 2d and 3d graph
+* v0.0.3 : Fix issue regarding the creation of the cmake query even if the project have no CMakeLists.txt
+* v0.1.0 : Big refactoring of the code
+* v0.1.1 : Add a "Configure with CMake Debugger" button in the Project Outline title (CMake >= 3.27)
+* v0.1.2 : Rely on CMake Tools only: build, clean and tests go through its API; the buildDir, cmakePath, ctestPath, cpackPath and defaultJobs settings and the "Select build folder" command are removed; the per target rebuild runs the cmake of the cache (CMAKE_COMMAND)

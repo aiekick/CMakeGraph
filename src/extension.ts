@@ -5,8 +5,7 @@ import { ApiClient, CmakeReply } from './cmake/api_client';
 import { Runner } from './cmake/runner';
 import { ReplyWatcher } from './watchers/reply_watcher';
 import { ProjectOutlineProvider } from './providers/outline_provider';
-import { ConfigProvider } from './providers/config_provider';
-import { CacheEntry, CtestShowOnlyResult } from './cmake/types';
+import { CtestShowOnlyResult } from './cmake/types';
 import { CMakeDiagnosticsManager } from './cmake/diagnostics_manager';
 import { CMakeFileDecorationProvider } from './providers/decoration_provider';
 import { ImpactedTargetsProvider } from './providers/impacted_provider';
@@ -36,10 +35,8 @@ let cmake_manager: CMakeToolsIntegrationManager | null = null;
 let api_client: ApiClient | null = null;
 let reply_watcher: ReplyWatcher | null = null;
 let outline_provider: ProjectOutlineProvider | null = null;
-let config_provider: ConfigProvider | null = null;
 let impacted_provider: ImpactedTargetsProvider | null = null;
 let graph_provider: DependencyGraphProvider | null = null;
-let config_view: vscode.TreeView<unknown> | null = null;
 let outline_view: vscode.TreeView<unknown> | null = null;
 let impacted_view: vscode.TreeView<unknown> | null = null;
 let last_reply: CmakeReply | null = null;
@@ -87,18 +84,12 @@ export async function activate(aContext: vscode.ExtensionContext): Promise<void>
     ws_state = aContext.workspaceState;
 
     outline_provider = new ProjectOutlineProvider();
-    config_provider = new ConfigProvider();
     impacted_provider = new ImpactedTargetsProvider();
 
     outline_view = vscode.window.createTreeView('CMakeGraphOutline', {
         treeDataProvider: outline_provider,
         showCollapseAll: true,
         canSelectMany: true,
-    });
-
-    config_view = vscode.window.createTreeView('CMakeGraphConfig', {
-        treeDataProvider: config_provider,
-        showCollapseAll: false,
     });
 
     impacted_view = vscode.window.createTreeView('CMakeGraphImpacted', {
@@ -151,13 +142,7 @@ export async function activate(aContext: vscode.ExtensionContext): Promise<void>
         ['CMakeGraph.refresh', cmdRefresh],
         ['CMakeGraph.refreshOutline', cmdRefresh],
         ['CMakeGraph.configureWithDebugger', cmdConfigureWithDebugger],
-        ['CMakeGraph.refreshConfig', cmdRefresh],
         ['CMakeGraph.refreshImpacted', cmdRefresh],
-        ['CMakeGraph.editCacheEntry', (e: unknown) => cmdEditCacheEntry(e as CacheEntry)],
-        ['CMakeGraph.filterConfig', cmdFilterConfig],
-        ['CMakeGraph.clearFilterConfig', cmdClearFilterConfig],
-        ['CMakeGraph.expandAllConfig', cmdExpandAllConfig],
-        ['CMakeGraph.collapseAllConfig', cmdCollapseAllConfig],
         ['CMakeGraph.openFile', (aUri: unknown) => cmdOpenFile(aUri as vscode.Uri)],
         ['CMakeGraph.openLocation', (aFile: unknown, aLine: unknown) => cmdOpenLocation(aFile as string, aLine as number)],
         ['CMakeGraph.copyToClipboard', (...aArgs: unknown[]) => cmdCopyToClipboard(aArgs)],
@@ -176,7 +161,7 @@ export async function activate(aContext: vscode.ExtensionContext): Promise<void>
         aContext.subscriptions.push(vscode.commands.registerCommand(id, handler));
     }
 
-    aContext.subscriptions.push(outline_view, config_view, impacted_view, runner);
+    aContext.subscriptions.push(outline_view, impacted_view, runner);
 
     aContext.subscriptions.push(vscode.debug.registerDebugAdapterDescriptorFactory(
         CMAKE_DEBUG_TYPE,
@@ -198,7 +183,7 @@ export async function activate(aContext: vscode.ExtensionContext): Promise<void>
             console.log(`[CMakeGraph] CMake new configure on ${aBuildDir} with Build Preset : ${aBuildPreset}`);
         }
     });
-    cmake_manager.watch(aContext);
+    await cmake_manager.watch(aContext);
     aContext.subscriptions.push(cmake_manager);
 
     aContext.subscriptions.push(wksConfigManager, appConfigManager);
@@ -271,7 +256,6 @@ async function loadReply(): Promise<void> {
             current_config
         );
 
-        config_provider!.refresh(last_reply.cache);
 
         // Derive sourceDir from codemodel paths
         const src = last_reply.codemodel.paths?.source || '';
@@ -328,7 +312,6 @@ async function updateAllPanesWithConfig(aConfig: string): Promise<void> {
             last_reply.targets,
             current_config
         );
-        config_provider!.refresh(last_reply.cache);
         const src = last_reply.codemodel.paths?.source || '';
         impacted_provider!.refresh(last_reply.targets, src);
         graph_provider?.refresh(last_reply.targets);
@@ -714,94 +697,6 @@ async function cmdOpenSettings(): Promise<void> {
         'workbench.action.openSettings',
         '@ext:aiekick.cmakegraph'
     );
-}
-
-/**
- * Patches CMakeCache.txt then lets CMake Tools reconfigure, so the
- * kit, the presets and the environment it knows are honoured.
- */
-async function cmdEditCacheEntry(aEntry: CacheEntry): Promise<void> {
-    if (!build_dir) { return; }
-    let new_value: string | undefined;
-    if (aEntry.type === 'BOOL') {
-        new_value = await vscode.window.showQuickPick(['ON', 'OFF'], {
-            title: aEntry.name,
-            placeHolder: aEntry.properties.HELPSTRING ?? '',
-        });
-    } else if (aEntry.properties.STRINGS) {
-        new_value = await vscode.window.showQuickPick(aEntry.properties.STRINGS.split(';'), {
-            title: aEntry.name,
-            placeHolder: aEntry.properties.HELPSTRING ?? '',
-        });
-    } else {
-        new_value = await vscode.window.showInputBox({
-            title: aEntry.name,
-            prompt: aEntry.properties.HELPSTRING ?? '',
-            value: aEntry.value,
-        });
-    }
-    if (new_value === undefined || new_value === aEntry.value) { return; }
-
-    const cache_path = path.join(build_dir, 'CMakeCache.txt');
-    try {
-        const fs_p = await import('fs/promises');
-        const content = await fs_p.readFile(cache_path, 'utf-8');
-        // Match the line:  NAME:TYPE=VALUE
-        const regex = new RegExp(`^(${escapeRegex(aEntry.name)}:${escapeRegex(aEntry.type)}=)(.*)$`, 'm');
-        if (!regex.test(content)) {
-            vscode.window.showWarningMessage(`CMakeGraph: entry ${aEntry.name} not found in CMakeCache.txt`);
-            return;
-        }
-        // A function keeps the "$&", "$1"... of the value literal
-        const updated = content.replace(regex, (_aMatch, aPrefix: string) => `${aPrefix}${new_value}`);
-        await fs_p.writeFile(cache_path, updated, 'utf-8');
-    } catch (err) {
-        vscode.window.showErrorMessage(
-            `CMakeGraph: failed to update CMakeCache.txt — ${(err as Error).message}`
-        );
-        return;
-    }
-
-    if (!cmake_manager) { return; }
-    checkCMakeToolsResult(await cmake_manager.configure(), `reconfigure after modifying ${aEntry.name}`);
-}
-
-async function cmdFilterConfig(): Promise<void> {
-    if (!config_provider) { return; }
-    const current = config_provider.currentFilter;
-    const input = await vscode.window.showInputBox({
-        title: 'Filter CMake variables',
-        prompt: 'Search in name, value and description',
-        value: current,
-        placeHolder: 'e.g.: FOOBAR, CMAKE_CXX, path...',
-    });
-    if (input === undefined) { return; }
-    if (input === '') {
-        config_provider.clearFilter();
-        await vscode.commands.executeCommand('setContext', 'CMakeGraph.configFilterActive', false);
-    } else {
-        config_provider.setFilter(input);
-        await vscode.commands.executeCommand('setContext', 'CMakeGraph.configFilterActive', true);
-    }
-}
-
-async function cmdClearFilterConfig(): Promise<void> {
-    if (!config_provider) { return; }
-    config_provider.clearFilter();
-    await vscode.commands.executeCommand('setContext', 'CMakeGraph.configFilterActive', false);
-}
-
-async function cmdExpandAllConfig(): Promise<void> {
-    if (!config_provider || !config_view) { return; }
-    for (const group of config_provider.getGroups()) {
-        await (config_view as vscode.TreeView<unknown>).reveal(group, {
-            expand: true, select: false, focus: false,
-        });
-    }
-}
-
-async function cmdCollapseAllConfig(): Promise<void> {
-    await vscode.commands.executeCommand('workbench.actions.treeView.CMakeGraphConfig.collapseAll');
 }
 
 async function cmdOpenFile(aUri: vscode.Uri): Promise<void> {

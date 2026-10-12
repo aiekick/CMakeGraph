@@ -83,6 +83,7 @@ export class WorkspaceConfigManager implements vscode.Disposable {
                         settingsCollapse: cfg.get<Record<string, boolean>>(
                             'graphSettingsCollapse', DefaultConfig.graph.simulation.controls.settingsCollapse),
                         settingsVisible: cfg.get<boolean>('graphSettingsVisible', DefaultConfig.graph.simulation.controls.settingsVisible),
+                        mode3d: cfg.get<boolean>('graph3DMode', DefaultConfig.graph.simulation.controls.mode3d),
                     },
                 },
             },

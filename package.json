@@ -134,6 +134,11 @@
           "type": "boolean",
           "default": false,
           "description": "Whether the settings panel is open"
+        },
+        "CMakeGraph.graph3DMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable 3D mode for the dependency graph"
         }
       }
     },
@@ -152,11 +157,6 @@
           "id": "CMakeGraphOutline",
           "name": "Project Outline",
           "icon": "$(checklist)"
-        },
-        {
-          "id": "CMakeGraphConfig",
-          "name": "Configuration",
-          "icon": "$(tools)"
         },
         {
           "id": "CMakeGraphImpacted",
@@ -245,46 +245,10 @@
         "icon": "$(debug)"
       },
       {
-        "command": "CMakeGraph.refreshConfig",
-        "title": "Refresh",
-        "category": "CMake",
-        "icon": "$(refresh)"
-      },
-      {
         "command": "CMakeGraph.refreshImpacted",
         "title": "Refresh",
         "category": "CMake",
         "icon": "$(refresh)"
-      },
-      {
-        "command": "CMakeGraph.filterConfig",
-        "title": "Filter variables",
-        "category": "CMake",
-        "icon": "$(search)"
-      },
-      {
-        "command": "CMakeGraph.clearFilterConfig",
-        "title": "Clear filter",
-        "category": "CMake",
-        "icon": "$(clear-all)"
-      },
-      {
-        "command": "CMakeGraph.expandAllConfig",
-        "title": "Expand all",
-        "category": "CMake",
-        "icon": "$(expand-all)"
-      },
-      {
-        "command": "CMakeGraph.collapseAllConfig",
-        "title": "Collapse all",
-        "category": "CMake",
-        "icon": "$(collapse-all)"
-      },
-      {
-        "command": "CMakeGraph.editCacheEntry",
-        "title": "Edit variable",
-        "category": "CMake",
-        "icon": "$(edit)"
       },
       {
         "command": "CMakeGraph.openFile",
@@ -489,41 +453,6 @@
         },
         {
           "command": "CMakeGraph.selectConfig",
-          "when": "view == CMakeGraphConfig && CMakeGraph.multiConfig",
-          "group": "navigation@2"
-        },
-        {
-          "command": "CMakeGraph.filterConfig",
-          "when": "view == CMakeGraphConfig",
-          "group": "navigation@3"
-        },
-        {
-          "command": "CMakeGraph.clearFilterConfig",
-          "when": "view == CMakeGraphConfig && CMakeGraph.configFilterActive",
-          "group": "navigation@4"
-        },
-        {
-          "command": "CMakeGraph.collapseAllConfig",
-          "when": "view == CMakeGraphConfig",
-          "group": "navigation@5"
-        },
-        {
-          "command": "CMakeGraph.expandAllConfig",
-          "when": "view == CMakeGraphConfig",
-          "group": "navigation@6"
-        },
-        {
-          "command": "CMakeGraph.refreshConfig",
-          "when": "view == CMakeGraphConfig",
-          "group": "navigation@7"
-        },
-        {
-          "command": "CMakeGraph.openSettings",
-          "when": "view == CMakeGraphConfig",
-          "group": "navigation@8"
-        },
-        {
-          "command": "CMakeGraph.selectConfig",
           "when": "view == CMakeGraphImpacted && CMakeGraph.multiConfig",
           "group": "navigation@2"
         },
@@ -610,11 +539,6 @@
           "group": "inline@3"
         },
         {
-          "command": "CMakeGraph.editCacheEntry",
-          "when": "view == CMakeGraphConfig && viewItem == cmakeCacheEntry",
-          "group": "inline@1"
-        },
-        {
           "command": "CMakeGraph.copyToClipboard",
           "when": "view == CMakeGraphOutline && viewItem == outlineCopyable",
           "group": "1_copy@1"
@@ -658,16 +582,6 @@
           "command": "CMakeGraph.clearFilterImpacted",
           "when": "view == CMakeGraphImpacted && viewItem == impactedFilterActive",
           "group": "inline@2"
-        },
-        {
-          "command": "CMakeGraph.filterConfig",
-          "when": "view == CMakeGraphConfig && viewItem =~ /^cmakeCacheFilter/",
-          "group": "inline@1"
-        },
-        {
-          "command": "CMakeGraph.clearFilterConfig",
-          "when": "view == CMakeGraphConfig && viewItem == cmakeCacheFilterActive",
-          "group": "inline@2"
         }
       ]
     },
@@ -707,7 +621,8 @@
   "main": "./out/extension.js",
   "scripts": {
     "check": "tsc --noEmit",
-    "compile": "tsc -p ./",
+    "compile": "rm -rf out && tsc -p ./ && node ./scripts/esbuild.js",
+    "vsce": "rm -rf out && node ./scripts/esbuild.js && vsce package",
     "package": "rm -rf out && node ./scripts/esbuild.js && node ./scripts/package.js",
     "watch": "tsc -watch -p ./"
   },

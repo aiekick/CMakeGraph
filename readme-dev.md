@@ -91,7 +91,6 @@ CMakeGraph/
       cmake_diagnostics_manager.ts        Parse cmake output for errors/warnings
     providers/
       outline_provider.ts                 Project Outline tree view
-      config_provider.ts                  Configuration (cache) tree view
       impacted_provider.ts                Impacted Targets tree view
       graph_provider.ts                   Dependency Graph custom editor provider
       decoration_provider.ts              File decoration badges (E/W/D)
@@ -126,13 +125,12 @@ CMakeGraph/
 CMake File-Based API
         |
         v
-  api_client.ts ---- loadAll() ----> CmakeReply { codemodel, targets[], cache, cmakeFiles }
+  api_client.ts ---- loadAll() ----> CmakeReply { codemodel, targets[], cmakeFiles }
         |
         v
   extension.ts ---- loadReply()
         |
         +---> outlineProvider.refresh()
-        +---> configProvider.refresh(cache)
         +---> impactedProvider.refresh(targets, sourceDir)
         +---> graphProvider.refresh(targets)
         +---> refreshAvailableTests() ---> impactedProvider.setTestMap()
@@ -195,7 +193,7 @@ Parses CMake configure output line-by-line to extract diagnostics:
 
 ### Tree View Providers
 
-Three tree views implement `vscode.TreeDataProvider<TreeNode>` with discriminated union node types.
+Two tree views implement `vscode.TreeDataProvider<TreeNode>` with discriminated union node types.
 
 #### ProjectOutlineProvider (`outline_provider.ts`)
 
@@ -205,12 +203,6 @@ Three tree views implement `vscode.TreeDataProvider<TreeNode>` with discriminate
 - Inline graph icons on project item and targets (except UTILITY) to open the dependency graph
 - Filter support: substring match on target name or type
 - `findTargetNode()`: enables "Show in outline" navigation from dependencies and direct links
-
-#### ConfigProvider (`config_provider.ts`)
-
-- Groups cache entries by prefix (`CMAKE_`, `BUILD_`, etc.)
-- Supports filter on name, value and `HELPSTRING`
-- Each entry node carries the full `CacheEntry` for inline editing
 
 #### ImpactedTargetsProvider (`impacted_targets_provider.ts`)
 
@@ -393,12 +385,11 @@ Decorates files and folders in the Explorer with diagnostic badges:
 
 ### Views
 
-Three tree views in the `CMakeGraph` activity bar container plus a custom editor:
+Two tree views in the `CMakeGraph` activity bar container plus a custom editor:
 
 | View ID | Name | Type |
 |---------|------|------|
 | `CMakeGraphOutline` | Project Outline | Tree view |
-| `CMakeGraphConfig` | Configuration | Tree view |
 | `CMakeGraphImpacted` | Impacted Targets | Tree view |
 | `CMakeGraph.graphEditor` | Dependency Graph | Custom editor (`cmake-graph:` scheme) |
 
@@ -424,10 +415,6 @@ Context values control which inline buttons appear on each tree node:
 - `outlineDirectLink` -- double-click navigates to target in outline; inline graph icon
 - `outlineDependency` -- copy, show in outline
 
-**Configuration:**
-- `cmakeCacheEntry` -- edit button
-- `cmakeCacheFilter` / `cmakeCacheFilterActive` -- filter / clear filter
-
 ### Commands
 
 All commands are prefixed with `CMakeGraph.`. The full list is declared in `package.json` under `contributes.commands`. Key commands:
@@ -446,7 +433,6 @@ All commands are prefixed with `CMakeGraph.`. The full list is declared in `pack
 | `refresh` | Refresh | -- |
 | `filterImpacted` | Filter targets | -- |
 | `filterOutline` | Filter targets | -- |
-| `filterConfig` | Filter variables | -- |
 | `openGraphInEditor` | Open full dependency graph | -- |
 | `openTargetGraphInEditor` | Open target sub-graph | -- |
 | `graphEditorRefresh` | Refresh graph editor | -- |

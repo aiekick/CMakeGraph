@@ -179,6 +179,27 @@ body {
     background: var(--vscode-toolbar-hoverBackground);
 }
 
+/* ---- 2D/3D toggle button ---- */
+
+#mode-3d-btn {
+    background: var(--vscode-button-secondaryBackground, var(--vscode-sideBar-background));
+    color: var(--vscode-button-secondaryForeground, var(--vscode-editor-foreground));
+    border: 1px solid var(--vscode-panel-border);
+    cursor: pointer;
+    font-size: 10px;
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 2px;
+    line-height: 16px;
+    min-width: 24px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+#mode-3d-btn:hover {
+    background: var(--vscode-toolbar-hoverBackground);
+}
+
 /* ---- Search bar ---- */
 
 #search-container {

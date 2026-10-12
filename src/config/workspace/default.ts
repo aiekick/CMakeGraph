@@ -36,6 +36,7 @@ export const WorkspaceConfigDefault: WorkspaceTypes.Settings = {
                 simEnabled: true,
                 settingsCollapse: { controls: false, display: false, edges: false, simulation: true, colors: true },
                 settingsVisible: false,
+                mode3d: false,
             },
         },
     },
