@@ -1,0 +1,67 @@
+name: SonarQube
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to analyze"
+        required: true
+        default: master
+
+jobs:
+  sonar:
+    runs-on: debian13
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Submodules
+        run: |
+          FORGE_HOST="${GITHUB_SERVER_URL#*://}"
+          git -c url."https://oauth2:${CHECKOUT_TOKEN}@${FORGE_HOST}/".insteadOf="https://${FORGE_HOST}/" \
+              -c url."https://oauth2:${CHECKOUT_TOKEN}@${FORGE_HOST}/".insteadOf="git@${FORGE_HOST}:" \
+              submodule update --init --recursive
+
+      - name: Install
+        run: |
+          # Reproducible install when a lockfile exists, plain install otherwise
+          # --loglevel=http prints each package fetch so progress is visible in the job log
+          if [ -f package-lock.json ]; then
+            npm ci --no-audit --no-fund --loglevel=http
+          else
+            npm install --no-audit --no-fund --loglevel=http
+          fi
+
+      - name: Tests
+        run: npm run test:coverage --if-present || true
+
+      - name: Analyze
+        env:
+          BRANCH: ${{ inputs.branch || github.ref_name }}
+        run: |
+          EXCLUSIONS="node_modules/**,dist/**,out/**,.vscode-test/**,build/**,coverage/**,**/old/**,**/archives/**${SONAR_EXTRA_EXCLUSIONS:+,${SONAR_EXTRA_EXCLUSIONS}}"
+          echo "Exclusions: ${EXCLUSIONS}"
+
+          KEY="${GITHUB_REPOSITORY/\//::}"
+          NAME="${KEY}"
+          if [ "${BRANCH}" != "master" ]; then
+            SAFE_BRANCH="${BRANCH//[^A-Za-z0-9._-]/-}"
+            KEY="${KEY}:${SAFE_BRANCH}"
+            NAME="${NAME} [${BRANCH}]"
+          fi
+
+          COVERAGE=""
+          if [ -f coverage/lcov.info ]; then
+            COVERAGE="-Dsonar.javascript.lcov.reportPaths=coverage/lcov.info"
+          fi
+
+          sonar-scanner \
+            -Dsonar.projectKey="${KEY}" \
+            -Dsonar.projectName="${NAME}" \
+            -Dsonar.exclusions="${EXCLUSIONS}" \
+            ${COVERAGE}
+
